@@ -1,6 +1,6 @@
 # PiGallery2 Curation CLI
 
-These host-side commands inspect and execute deletion requests stored by the PiGallery2 deletion-review extension. Run them on the Docker host, not inside the read-only PiGallery2 container.
+These host-side commands inspect curation requests and execute only approved deletion work. Run them on the Docker host, not inside the read-only PiGallery2 container.
 
 ## Configuration
 
@@ -26,7 +26,7 @@ The scripts look for `.env` in the current directory and then beside the script.
 
 ## Review requests
 
-Show the active queue—both pending and approved items:
+Show the active queues—open metadata requests plus pending and approved deletions:
 
 ```bash
 python3 pg2_curation_review.py
@@ -37,6 +37,10 @@ Filter by state:
 ```bash
 python3 pg2_curation_review.py --state PENDING
 python3 pg2_curation_review.py --state APPROVED
+python3 pg2_curation_review.py --state OPEN
+python3 pg2_curation_review.py --state RESOLVED
+python3 pg2_curation_review.py --state DISMISSED
+python3 pg2_curation_review.py --state WITHDRAWN
 python3 pg2_curation_review.py --state ERROR
 python3 pg2_curation_review.py --state EXECUTED
 python3 pg2_curation_review.py --state ALL
@@ -58,7 +62,7 @@ Then execute the approved queue:
 ./pg2-curation-delete --execute
 ```
 
-The command processes **every item currently in `APPROVED` state**. It verifies root containment, file size, modification time, and SHA-256 before deletion. Immediately before unlinking, it locks and rechecks the queue entry; an item cancelled since the initial queue read is safely skipped. Successful records become `EXECUTED`; failures become `ERROR`.
+The command processes **only deletion items currently in `APPROVED` state**. Metadata correction requests can never enter this executor. It verifies root containment, file size, modification time, and SHA-256 before deletion. Immediately before unlinking, it locks and rechecks the queue entry; an item cancelled since the initial queue read is safely skipped. Successful records become `EXECUTED`; failures become `ERROR`.
 
 Run it as the least-privileged host account that can write the photo root and curation database. Root is not intrinsically required.
 

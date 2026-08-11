@@ -1,8 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CurationRepository = exports.CURATION_REPOSITORY_API_VERSION = void 0;
+const domain_1 = require("../domain");
 const paths_1 = require("../security/paths");
-exports.CURATION_REPOSITORY_API_VERSION = 3;
+exports.CURATION_REPOSITORY_API_VERSION = 4;
 const ITEM_SELECT = `
   SELECT id,
          relative_path AS relativePath,
@@ -36,6 +37,23 @@ const REQUEST_SELECT = `
          withdrawn_at AS withdrawnAt
     FROM deletion_requests
 `;
+const METADATA_REQUEST_SELECT = `
+  SELECT mr.id,
+         cm.relative_path AS relativePath,
+         mr.category,
+         mr.state,
+         mr.requested_by_user_id AS requestedByUserId,
+         mr.requested_by_user_name AS requestedByUserName,
+         mr.requested_at AS requestedAt,
+         mr.comment,
+         mr.updated_at AS updatedAt,
+         mr.closed_by_user_id AS closedByUserId,
+         mr.closed_by_user_name AS closedByUserName,
+         mr.closed_at AS closedAt,
+         mr.resolution_comment AS resolutionComment
+    FROM metadata_requests mr
+    JOIN curation_media cm ON cm.id = mr.curation_media_id
+`;
 class CurationRepository {
     constructor(database, reasonMaxLength = 4000, now = () => new Date().toISOString()) {
         this.database = database;
@@ -54,15 +72,26 @@ class CurationRepository {
         return this.getItem(relativePath)?.state || null;
     }
     getProjection(relativePath) {
+        const normalizedPath = (0, paths_1.normalizeRelativeMediaPath)(relativePath);
         const info = this.getInfo(relativePath);
-        if (!info) {
+        const activeDeletion = info && ['PENDING', 'APPROVED', 'ERROR'].includes(info.item.state)
+            ? info
+            : null;
+        const metadataRequests = this.db.prepare(`${METADATA_REQUEST_SELECT} WHERE cm.relative_path = ? AND mr.state = 'OPEN' ORDER BY mr.id`).all(normalizedPath);
+        if (!activeDeletion && metadataRequests.length === 0) {
             return null;
         }
+        const media = this.db.prepare('SELECT public_token AS publicToken FROM curation_media WHERE relative_path = ?').get(normalizedPath);
         return {
-            state: info.item.state,
-            requesterNames: info.requests
-                .filter(request => request.cycle === info.item.currentCycle && request.withdrawnAt === null)
-                .map(request => request.requestedByUserName)
+            state: activeDeletion?.item.state || null,
+            requesterNames: [...new Set([
+                    ...(activeDeletion?.requests || [])
+                        .filter(request => request.cycle === activeDeletion?.item.currentCycle && request.withdrawnAt === null)
+                        .map(request => request.requestedByUserName),
+                    ...metadataRequests.map(request => request.requestedByUserName)
+                ])],
+            metadataCategories: metadataRequests.map(request => request.category),
+            itemToken: media?.publicToken || null
         };
     }
     getInfo(relativePath) {
@@ -78,6 +107,7 @@ class CurationRepository {
         const reason = this.normalizeReason(input.reason);
         return this.db.transaction(() => {
             const timestamp = this.now();
+            this.ensureMedia(relativePath, input.mediaType, timestamp);
             let item = this.getItem(relativePath);
             let status = 'requested';
             if (!item) {
@@ -169,6 +199,139 @@ class CurationRepository {
             };
         })();
     }
+    requestMetadata(input) {
+        const relativePath = (0, paths_1.normalizeRelativeMediaPath)(input.relativePath);
+        const categories = [...new Set(input.categories)];
+        if (categories.length === 0 || categories.some(category => !domain_1.METADATA_CATEGORIES.includes(category))) {
+            throw new Error('At least one valid metadata correction category is required');
+        }
+        const comment = this.normalizeComment(input.comment);
+        return this.db.transaction(() => {
+            const timestamp = this.now();
+            const mediaId = this.ensureMedia(relativePath, input.mediaType, timestamp);
+            const created = [];
+            const existing = [];
+            for (const category of categories) {
+                const active = this.db.prepare(`
+          SELECT id FROM metadata_requests
+           WHERE curation_media_id = ? AND category = ?
+             AND requested_by_user_id = ? AND state = 'OPEN'
+        `).get(mediaId, category, input.actor.id);
+                if (active) {
+                    existing.push(category);
+                    continue;
+                }
+                const inserted = this.db.prepare(`
+          INSERT INTO metadata_requests(
+            curation_media_id, category, state,
+            requested_by_user_id, requested_by_user_name, requested_at,
+            comment, updated_at
+          ) VALUES (?, ?, 'OPEN', ?, ?, ?, ?, ?)
+        `).run(mediaId, category, input.actor.id, input.actor.name, timestamp, comment, timestamp);
+                const requestId = Number(inserted.lastInsertRowid);
+                this.addMetadataEvent(requestId, 'REQUESTED', input.actor, timestamp, { category, comment });
+                created.push(category);
+            }
+            return { created, existing };
+        })();
+    }
+    withdrawOwnCurationRequests(relativePathInput, actor) {
+        const relativePath = (0, paths_1.normalizeRelativeMediaPath)(relativePathInput);
+        return this.db.transaction(() => {
+            const deletion = this.withdrawOwnDeletionRequest(relativePath, actor);
+            const requests = this.db.prepare(`
+        SELECT mr.id
+          FROM metadata_requests mr
+          JOIN curation_media cm ON cm.id = mr.curation_media_id
+         WHERE cm.relative_path = ? AND mr.requested_by_user_id = ? AND mr.state = 'OPEN'
+      `).all(relativePath, actor.id);
+            const timestamp = this.now();
+            for (const request of requests) {
+                this.db.prepare(`
+          UPDATE metadata_requests
+             SET state = 'WITHDRAWN', updated_at = ?,
+                 closed_by_user_id = ?, closed_by_user_name = ?, closed_at = ?
+           WHERE id = ? AND state = 'OPEN'
+        `).run(timestamp, actor.id, actor.name, timestamp, request.id);
+                this.addMetadataEvent(request.id, 'WITHDRAWN', actor, timestamp);
+            }
+            return {
+                deletionWithdrawn: deletion.status === 'withdrawn',
+                metadataWithdrawn: requests.length
+            };
+        })();
+    }
+    closeMetadataRequests(relativePathInput, actor, outcome, resolutionComment) {
+        const relativePath = (0, paths_1.normalizeRelativeMediaPath)(relativePathInput);
+        const comment = this.normalizeComment(resolutionComment);
+        return this.db.transaction(() => {
+            const requests = this.db.prepare(`
+        SELECT mr.id
+          FROM metadata_requests mr
+          JOIN curation_media cm ON cm.id = mr.curation_media_id
+         WHERE cm.relative_path = ? AND mr.state = 'OPEN'
+      `).all(relativePath);
+            if (requests.length === 0) {
+                throw new Error('This photo has no open metadata correction requests');
+            }
+            const timestamp = this.now();
+            for (const request of requests) {
+                this.db.prepare(`
+          UPDATE metadata_requests
+             SET state = ?, updated_at = ?,
+                 closed_by_user_id = ?, closed_by_user_name = ?, closed_at = ?,
+                 resolution_comment = ?
+           WHERE id = ? AND state = 'OPEN'
+        `).run(outcome, timestamp, actor.id, actor.name, timestamp, comment, request.id);
+                this.addMetadataEvent(request.id, outcome, actor, timestamp, { comment });
+            }
+            return requests.length;
+        })();
+    }
+    getClientRequestDetails(itemToken, actor, administrator) {
+        if (!/^[a-f0-9]{32}$/.test(itemToken)) {
+            return [];
+        }
+        const media = this.db.prepare('SELECT relative_path AS relativePath FROM curation_media WHERE public_token = ?').get(itemToken);
+        if (!media) {
+            return [];
+        }
+        const details = [];
+        const deletionInfo = this.getInfo(media.relativePath);
+        if (deletionInfo && ['PENDING', 'APPROVED', 'ERROR'].includes(deletionInfo.item.state)) {
+            for (const request of deletionInfo.requests) {
+                if (request.cycle !== deletionInfo.item.currentCycle || request.withdrawnAt !== null ||
+                    (!administrator && request.requestedByUserId !== actor.id)) {
+                    continue;
+                }
+                details.push({
+                    kind: 'deletion',
+                    category: 'deletion',
+                    state: deletionInfo.item.state,
+                    requesterName: request.requestedByUserName,
+                    requestedAt: request.requestedAt,
+                    comment: request.reason,
+                    ownRequest: request.requestedByUserId === actor.id
+                });
+            }
+        }
+        const metadata = this.db.prepare(`${METADATA_REQUEST_SELECT} WHERE cm.relative_path = ? AND mr.state = 'OPEN' ORDER BY mr.requested_at, mr.id`).all(media.relativePath);
+        for (const request of metadata) {
+            if (!administrator && request.requestedByUserId !== actor.id) {
+                continue;
+            }
+            details.push({
+                kind: 'metadata',
+                category: request.category,
+                state: request.state,
+                requesterName: request.requestedByUserName,
+                requestedAt: request.requestedAt,
+                comment: request.comment,
+                ownRequest: request.requestedByUserId === actor.id
+            });
+        }
+        return details;
+    }
     approve(relativePathInput, actor, fingerprint) {
         const relativePath = (0, paths_1.normalizeRelativeMediaPath)(relativePathInput);
         return this.db.transaction(() => {
@@ -214,14 +377,31 @@ class CurationRepository {
         })();
     }
     normalizeReason(reason) {
-        if (reason == null) {
+        return this.normalizeComment(reason);
+    }
+    normalizeComment(comment) {
+        if (comment == null) {
             return null;
         }
-        const normalized = String(reason).trim();
+        const normalized = String(comment).trim();
         if (normalized.length > this.reasonMaxLength) {
-            throw new Error(`Deletion reason exceeds ${this.reasonMaxLength} characters`);
+            throw new Error(`Curation comment exceeds ${this.reasonMaxLength} characters`);
         }
         return normalized || null;
+    }
+    ensureMedia(relativePath, mediaType, timestamp) {
+        this.db.prepare(`
+      INSERT INTO curation_media(relative_path, media_type, created_at, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(relative_path) DO UPDATE SET
+        media_type = excluded.media_type,
+        updated_at = excluded.updated_at
+    `).run(relativePath, mediaType, timestamp, timestamp);
+        const media = this.db.prepare('SELECT id FROM curation_media WHERE relative_path = ?').get(relativePath);
+        if (!media) {
+            throw new Error(`Curation media record was not created for ${relativePath}`);
+        }
+        return media.id;
     }
     activeRequesterCount(itemId, cycle) {
         const row = this.db.prepare(`
@@ -251,6 +431,13 @@ class CurationRepository {
         deletion_item_id, cycle, event_type, actor_user_id, actor_user_name, created_at, payload_json
       ) VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(itemId, cycle, eventType, actor?.id || null, actor?.name || null, timestamp, payload === undefined ? null : JSON.stringify(payload));
+    }
+    addMetadataEvent(requestId, eventType, actor, timestamp, payload) {
+        this.db.prepare(`
+      INSERT INTO metadata_request_events(
+        metadata_request_id, event_type, actor_user_id, actor_user_name, created_at, payload_json
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `).run(requestId, eventType, actor?.id || null, actor?.name || null, timestamp, payload === undefined ? null : JSON.stringify(payload));
     }
 }
 exports.CurationRepository = CurationRepository;

@@ -1,182 +1,184 @@
-# PiGallery2 Curation — Deletion Review
+# PiGallery2 Curation Requests
 
-A community extension and host-side toolset that adds a moderated photo-deletion workflow to PiGallery2 while keeping PiGallery2's photo-library mount read-only.
+A community extension and host-side toolset for moderated photo curation in PiGallery2. Family members can report deletion and metadata problems, administrators can review them, and a separate defensive host command performs only approved deletions.
 
-Family members can request deletion, administrators can approve or decline, and a separate defensive Python command performs approved deletions on the Docker host. PiGallery2 itself never needs permission to alter the canonical photo library.
+PiGallery2 keeps read-only access to the canonical photo library.
 
-Current release: **0.3.0**
+Current release: **0.4.0**
 Tested target: **PiGallery2 3.5.x**, extension kit **3.5.2**, Node.js **22**
 License: **MIT**
 
-> This project can permanently delete photographs when its host command is run with `--execute`. Maintain tested backups, review the dry-run output, and keep the PiGallery2 image mount read-only.
+> `pg2-curation-delete --execute` can permanently delete photographs. Maintain tested backups, inspect its dry-run output, and keep PiGallery2's image mount read-only.
 
-## Contents
+## What it provides
 
-- [How it works](#how-it-works)
-- [Functionality](#functionality)
-- [Permission and state rules](#permission-and-state-rules)
-- [Security model](#security-model)
-- [Prerequisites and Docker mounts](#prerequisites-and-docker-mounts)
-- [Installation A: server installer](#installation-a-server-installer)
-- [Installation B: development deployment script](#installation-b-development-deployment-script)
-- [Installation C: manual](#installation-c-manual)
-- [Extension settings](#extension-settings)
-- [Reviewing and executing deletions](#reviewing-and-executing-deletions)
-- [Upgrades and backups](#upgrades-and-backups)
-- [Troubleshooting](#troubleshooting)
-- [Known PiGallery2 UI limitations](#known-pigallery2-ui-limitations)
-- [Development](#development)
+One **Request curation** pencil action lets an authorized user select one or more categories, in this order:
 
-## How it works
+1. Request deletion
+2. Wrong or missing faces
+3. Wrong or missing tags
+4. Wrong or missing location
+5. Wrong date or time
+6. Wrong or missing title/caption
+7. Duplicate photo
+8. Other
+9. Comment (optional)
+
+The optional comment is stored in SQLite. It is never written into a photo, XMP sidecar, or PiGallery keyword.
+
+Other functionality includes:
+
+- authenticated requester allowlists supporting `*`, `admin`, and named users;
+- multiple requesters and multiple correction categories on the same photo;
+- requester cancellation restricted to the authenticated user's own active requests;
+- administrator-only deletion approval and decline;
+- administrator-only resolution and dismissal of metadata requests;
+- in-gallery comment/details display for administrators and request owners;
+- flat saved searches for open work, every metadata category, and deletion states;
+- a per-user **Curation mode** toggle under PiGallery2's frame menu;
+- a read-only host report covering metadata and deletion work;
+- a dry-run-by-default, fingerprint-verifying deletion executor;
+- automatic migration of existing version-1 deletion databases.
+
+## Architecture
 
 The project has four cooperating components:
 
-1. **PiGallery2 server extension** — authenticates actions, applies request and moderation rules, stores workflow records, and projects state into PiGallery2's cached metadata.
-2. **Curation SQLite database** — stores deletion items, individual requester rows, moderation cycles, fingerprints, outcomes, and an append-only audit event history. It is separate from PiGallery2's disposable media index.
-3. **Host-side Python commands** — provide a read-only review report and a deliberately defensive deletion executor. Only the executor needs write access to the real photo library.
-4. **Frontend adaptation** — `custom-scripts.js` hides or shows actions according to authenticated permissions and per-photo curation tags. A small `Server.customHTMLHead` loader injects the asset without modifying PiGallery2's base image.
-
-The normal flow is:
+1. **PiGallery2 extension** — authenticates users, validates requests, applies state transitions, and updates synthetic cached keywords.
+2. **Curation SQLite database** — stores requests, comments, moderation outcomes, fingerprints, and audit events independently of PiGallery2's regenerable media index.
+3. **Host commands** — report all curation work and execute only approved deletions.
+4. **Frontend adaptation** — applies state and permission visibility, inserts Curation mode, and displays authorized request details without modifying PiGallery2's base code.
 
 ```text
-User requests deletion
-        ↓
-SQLite item becomes PENDING; PiGallery cache receives curation tags
-        ↓
-Administrator approves or declines
-        ↓
-APPROVED items are reviewed with the host CLI
-        ↓
-Host CLI validates path + fingerprint and, only with --execute, deletes
-        ↓
-Item becomes EXECUTED or ERROR; PiGallery2 is reindexed
+Request curation
+      │
+      ├── Metadata correction ── OPEN ──┬── RESOLVED
+      │                                ├── DISMISSED
+      │                                └── WITHDRAWN by its owner
+      │
+      └── Deletion ── PENDING ──┬── APPROVED ── host executor ── EXECUTED
+                                ├── DECLINED
+                                ├── ERROR
+                                └── cancelled when its final requester withdraws
 ```
 
-The photo library remains mounted at `/app/data/images:ro` throughout this workflow.
+Deletion remains a distinct security-sensitive subsystem. Metadata requests cannot enter the deletion executor.
 
-## Functionality
+## Permission rules
 
-### Requests and moderation
-
-- Authenticated, permitted users receive a **Request deletion** action with confirmation and an optional reason.
-- The request allowlist supports every authenticated user, all administrators, named users, or combinations of these categories.
-- Multiple users can request deletion of the same photo without creating duplicate deletion items.
-- Duplicate clicks by the same user are idempotent.
-- A requester can withdraw only their own active request, even if an administrator later removes their general request permission.
-- If other active requesters remain, the item stays active for them. If the last requester withdraws, the item leaves the pending or approved queue.
-- Only authenticated PiGallery2 administrators can approve or decline.
-- Administrative decline works for pending, approved, and failed items. Executed items are immutable.
-- Declined photos may be requested again in a new moderation cycle; history from earlier cycles remains available.
-
-### SQLite workflow data
-
-The extension creates and migrates its own SQLite database. It uses WAL mode, foreign keys, a busy timeout, and transactional state changes.
-
-The database contains:
-
-- one `deletion_items` row per normalized media path;
-- one or more `deletion_requests` rows containing authenticated user-ID/name snapshots, timestamps, reasons, cycles, and withdrawal timestamps;
-- `curation_events` audit rows for requests, withdrawals, approval, decline, cancellation, execution, and failure;
-- approved file size, modification time, SHA-256 digest, and algorithm.
-
-Back up this database. It contains human workflow and audit information and is not equivalent to PiGallery2's regenerable media index.
-
-### PiGallery2 integration
-
-The extension restores synthetic keywords whenever PiGallery2 loads photo metadata:
-
-- `pg-curation:delete-pending`
-- `pg-curation:delete-approved`
-- `pg-curation:delete-error`
-- `pg-curation:requested-by:<username>`
-
-These keywords exist only in PiGallery2's cache. They are not written into the photo or XMP sidecar.
-
-The extension creates locked saved searches:
-
-- **🗑 Deletion requests**
-- **✓ Approved for deletion**
-- **⚠ Deletion errors**
-
-### Frontend adaptation
-
-PiGallery2 3.5.x exposes extension buttons but does not consistently apply `minUserRole`. The supplied browser script corrects presentation without changing the PiGallery2 image:
-
-- it requests the current user's permission decisions from an authenticated extension endpoint;
-- it never contains or downloads the full request allowlist;
-- it fails closed, keeping all curation actions hidden if permission loading fails;
-- it uses cached curation tags to determine the current photo state;
-- it exposes **Cancel my deletion request** only when the current username has a corresponding requester tag.
-
-The JavaScript is presentation only. Every action is independently authorized and validated on the server.
-
-### Host commands
-
-`pg2-curation-review` reports pending and approved items by default, including requester names, timestamps, reasons, approval, cancellation, errors, and state.
-
-`pg2-curation-delete` is dry-run by default. It rejects:
-
-- absolute or traversing database paths;
-- paths escaping the configured photo root;
-- final media symlinks;
-- missing or unsupported fingerprints;
-- file size, modification-time, or SHA-256 changes;
-- unsafe XMP sidecar paths or changed file identity;
-- items that leave the approved queue before deletion.
-
-Immediately before unlinking, the command takes a SQLite write lock and rechecks the item. A cancellation that commits first prevents deletion; a deletion that already claimed the item completes before a later cancellation can change its state.
-
-## Permission and state rules
-
-The `Deletion request access` extension setting accepts a case-insensitive comma-separated list:
+The `Curation request access` setting is a case-insensitive comma-separated list:
 
 | Setting | Meaning |
 | --- | --- |
 | `*` | Every authenticated PiGallery2 user |
-| `admin` | Every user with the Administrator role or higher |
-| `family-user` | The individual PiGallery2 username `family-user` |
+| `admin` | Every administrator |
+| `family-user` | One named user |
 | `admin, family-user` | All administrators plus one named user |
 | `user:admin` | A literal non-administrator whose username is `admin` |
 
-Button visibility is state-dependent and always subject to authenticated permissions:
+Server-side rules are authoritative:
 
-| Photo state | Permitted requester | Administrator | Other authenticated user |
-| --- | --- | --- | --- |
-| No active request | Request | Request only if allowlisted | Nothing |
-| Pending, requested by current user | Cancel own request | Approve, Decline, and own Cancel when applicable | Own Cancel only |
-| Pending, requested by someone else | Nothing | Approve and Decline | Nothing |
-| Approved, requested by current user | Cancel own request | Decline and own Cancel when applicable | Own Cancel only |
-| Approved, requested by someone else | Nothing | Decline | Nothing |
-| Error | Own Cancel when applicable | Own Cancel when applicable | Nothing |
+- only allowlisted authenticated users can create requests;
+- a user can withdraw only requests whose stored user ID matches their authenticated ID;
+- only administrators can resolve or dismiss metadata requests;
+- only administrators can approve or decline deletion;
+- comments are returned only to administrators or their owning requester;
+- client-supplied usernames, tags, paths, and roles never grant permission.
 
-Server rules are stricter than display rules: a user ID must own an active request row to withdraw it, and administrator role is checked on every moderation request.
+The browser JavaScript is presentation logic. Removing or changing it cannot bypass these checks.
 
-## Security model
+## Request state and button visibility
 
-- PiGallery2 receives **read-only** access to the photo library.
-- The extension derives the actor from PiGallery2's authenticated session and the media from PiGallery2's authorized media callback.
-- Client-submitted usernames, requester tags, and arbitrary filesystem paths never grant authority.
-- Request permission, own-request ownership, and administrator moderation are enforced server-side.
-- SQLite mutations are transactional and requester withdrawals are scoped to the current moderation cycle.
-- Approved fingerprints are recalculated when an administrator approves.
-- The deletion command operates on normalized relative paths beneath one configured host root and uses filesystem APIs rather than interpolated shell commands.
-- Browser code can be removed or manipulated without bypassing the backend checks.
-- Free-text reasons remain in the curation database and are not projected into XMP.
+All curation buttons are hidden while Curation mode is disabled. When enabled:
 
-See [SECURITY.md](SECURITY.md) for vulnerability reporting and deployment-boundary guidance.
+- authorized requesters see **Request curation**;
+- an owner with active requests sees **Cancel my curation requests**;
+- administrators see metadata Resolve/Dismiss only when metadata requests are open;
+- administrators see deletion Approve only when deletion is pending;
+- administrators see deletion Decline while deletion is pending, approved, or in error;
+- a comment badge appears for administrators and for owners of requests on that photo.
 
-## Prerequisites and Docker mounts
+Cancelling withdraws all active requests made by that user for that photo. It never affects requests made by another account.
 
-Before either installation method, the server needs:
+Resolving or dismissing metadata currently closes every open non-deletion request on that photo in one administrator action. Deletion state remains independent.
 
-- an existing PiGallery2 3.5.x Docker Compose deployment;
-- a persistent PiGallery2 config directory;
-- a persistent PiGallery2 database directory;
-- a separate persistent curation directory visible to both the container and host;
-- the photo library mounted read-only in PiGallery2 and writable only to the trusted host account that will execute deletions;
-- a file bind mount exposing `custom-scripts.js` in every enabled PiGallery2 locale.
+## Curation mode
 
-A parameterized example is provided in [examples/docker-compose.yml](examples/docker-compose.yml) with [examples/docker-compose.env.example](examples/docker-compose.env.example). The relevant mounts are:
+The frontend script inserts a **Curation mode** checkbox into the dropdown associated with `button-frame-menu`.
+
+- It defaults to disabled for a user who has not selected a preference.
+- Its value is stored in browser `localStorage`, keyed by PiGallery2 user ID.
+- It controls only button and comment-badge visibility.
+- It is not a permission or security boundary.
+- If PiGallery2 changes the menu DOM and injection fails, curation actions remain hidden rather than becoming broadly visible.
+
+## Comments in the gallery
+
+Synthetic cached keywords include an opaque 32-character item token, not the comment. Clicking the `💬` badge asks an authenticated extension endpoint for details.
+
+Administrators receive all active requests for that item. Ordinary users receive only requests stored under their authenticated user ID. The dialog renders all values as text, preventing request comments from being interpreted as HTML.
+
+## Synthetic keywords and saved searches
+
+The extension projects internal state into PiGallery2's cached metadata, for example:
+
+```text
+pg-curation:open
+pg-curation:category:faces
+pg-curation:category:tags
+pg-curation:delete-pending
+pg-curation:delete-approved
+pg-curation:requested-by:family-user
+pg-curation:item:0123456789abcdef0123456789abcdef
+```
+
+These keywords are never written into media or XMP files. SQLite is authoritative; the keywords are a disposable projection used for saved searches and frontend state.
+
+The extension creates locked saved searches:
+
+- `✎ Curation · All open`
+- `✎ Curation · Faces`
+- `✎ Curation · Tags`
+- `✎ Curation · Location`
+- `✎ Curation · Date and time`
+- `✎ Curation · Title and caption`
+- `✎ Curation · Duplicates`
+- `✎ Curation · Other`
+- `🗑 Deletion requests`
+- `✓ Approved for deletion`
+- `⚠ Deletion errors`
+
+PiGallery2 3.5.x saved searches are flat and have no parent-album relationship. The consistent names provide visual grouping; genuine nested saved searches are not available through the current API.
+
+## Database
+
+SQLite uses WAL mode, foreign keys, a busy timeout, transactional state changes, and schema migrations.
+
+Deletion tables remain compatible with the original workflow:
+
+- `deletion_items`
+- `deletion_requests`
+- `curation_events`
+
+General curation adds:
+
+- `curation_media`, including the opaque browser lookup token;
+- `metadata_requests`;
+- `metadata_request_events`.
+
+An existing version-1 database is upgraded automatically. Its deletion queue and audit history are preserved. Back up `curation.sqlite`, `curation.sqlite-wal`, and `curation.sqlite-shm` before an upgrade while PiGallery2 is stopped, or use SQLite's online backup mechanism.
+
+## Docker prerequisites
+
+The server needs an existing PiGallery2 Docker Compose deployment with:
+
+- persistent PiGallery2 config and database directories;
+- a dedicated persistent curation directory;
+- the photo library mounted read-only in PiGallery2;
+- the photo library writable only to the trusted host account running the executor;
+- `custom-scripts.js` mounted read-only into every enabled PiGallery2 locale.
+
+See [examples/docker-compose.yml](examples/docker-compose.yml) and [examples/docker-compose.env.example](examples/docker-compose.env.example).
 
 ```yaml
 services:
@@ -189,59 +191,43 @@ services:
       - "${PG2_CUSTOM_ASSETS_DIR}/custom-scripts.js:/app/dist/en/custom-scripts.js:ro"
 ```
 
-For each additional enabled locale, add another mount using the same source and a different destination, for example `/app/dist/fr/custom-scripts.js`.
+Add another asset mount for each additional locale, changing only `/app/dist/<locale>/custom-scripts.js`.
 
-Docker Compose and this repository can use several separate `.env` contexts:
+## Installation A: directly on the server
 
-- the server's Compose `.env` supplies paths used by `docker-compose.yml`;
-- the repository root `.env` supplies server-local installation paths and settings to `install.sh`;
-- `.env.deploy` supplies SSH and deployment paths to `deploy-to-server.sh` on a development workstation;
-- `cli/.env` supplies the database and photo-root paths used by the host Python commands.
+This is the recommended public installation and upgrade method. It uses Git locally on the Docker host and requires no SSH or SCP deployment stage.
 
-None of these real `.env` files should be committed.
-
-## Installation A: server installer
-
-This is the recommended installation and upgrade method. The repository lives on the PiGallery2 Docker host, and `install.sh` updates it directly without SSH or SCP.
-
-### 1. Prepare PiGallery2 Compose mounts
-
-Add the curation and locale-specific custom-script mounts described above. The installer does not rewrite `docker-compose.yml`; deployment-specific Compose changes remain under the server administrator's control.
-
-The host must have Git, Python 3, Docker, and Docker Compose. Node.js and npm are not required on the host because runtime dependencies are installed using the PiGallery2 Docker image.
-
-### 2. Clone and configure
-
-Run on the PiGallery2 server:
+### 1. Clone and configure
 
 ```bash
-git clone <repository-url> /opt/pigallery2-curation
-cd /opt/pigallery2-curation
+git clone <repository-url> /opt/pigallery2-curation-requests
+cd /opt/pigallery2-curation-requests
 cp .env.example .env
 chmod 600 .env
 ```
 
-Edit `.env`. Its paths must describe the existing server deployment. In particular:
+Edit `.env` for the existing Docker deployment:
 
 | Variable | Purpose |
 | --- | --- |
-| `PG2_INSTALL_ROOT` | Base host directory for the existing PiGallery2 deployment |
-| `PG2_CONTAINER` | Actual Docker container name |
-| `PG2_COMPOSE_DIR` | Directory containing the existing Compose file |
-| `PG2_COMPOSE_SERVICE` | Compose service name, which may differ from the container name |
-| `PG2_EXTENSION_DIR` | Host destination for extension production files |
-| `PG2_CLI_DIR` | Host destination for review/deletion tools |
-| `PG2_CUSTOM_ASSETS_DIR` | Host directory bound into PiGallery2 locale assets |
-| `PG2_CONFIG_FILE` | Existing host PiGallery2 `config.json` |
-| `PG2_EXTENSION_DATABASE_PATH` | SQLite path seen inside the PiGallery2 container |
-| `PG2_EXTENSION_REQUESTER_ALLOWLIST` | `*`, `admin`, named users, or a combination |
-| `PG2_CURATION_DB` | The same SQLite database as a path on the Docker host |
-| `PG2_PHOTO_ROOT` | Writable canonical photo-library path on the Docker host |
+| `PG2_INSTALL_ROOT` | Existing PiGallery2 deployment root |
+| `PG2_CONTAINER` | Docker container name |
+| `PG2_COMPOSE_DIR` | Directory containing the Compose file |
+| `PG2_COMPOSE_SERVICE` | Compose service name |
+| `PG2_EXTENSION_DIR` | Host extension destination |
+| `PG2_CLI_DIR` | Host review/deletion command destination |
+| `PG2_CUSTOM_ASSETS_DIR` | Source directory for locale asset mounts |
+| `PG2_CONFIG_FILE` | Existing PiGallery2 `config.json` |
+| `PG2_EXTENSION_DATABASE_PATH` | SQLite path inside the container |
+| `PG2_EXTENSION_REQUESTER_ALLOWLIST` | Request access expression |
+| `PG2_EXTENSION_COMMENT_MAX_LENGTH` | Maximum comment length |
+| `PG2_CURATION_DB` | The same SQLite file as a host path |
+| `PG2_PHOTO_ROOT` | Canonical photo-library host path |
 | `PG2_SIDECAR_STYLE` | `none`, `appended`, or `stem` |
 
-Only simple absolute paths containing letters, numbers, `.`, `_`, `-`, and `/` are accepted. The installer parses `.env` as data; it never executes the file as shell code.
+The file is parsed as data and is never sourced as shell code. Installation paths reject shell characters, traversal components, doubled separators, and filesystem-root targets.
 
-### 3. Validate and install
+### 2. Validate and install
 
 ```bash
 ./install.sh --check-config
@@ -250,163 +236,63 @@ Only simple absolute paths containing letters, numbers, `.`, `_`, `-`, and `/` a
 
 The installer:
 
-1. fast-forwards the Git checkout with `git pull --ff-only` and re-executes its updated version;
-2. creates the required host directories and installs only runtime extension, CLI, and browser files;
-3. creates `cli/.env` from the host paths in the root `.env`;
-4. atomically configures the extension settings and `Server.customHTMLHead` while preserving unrelated PiGallery2 settings;
-5. stops the configured container, or creates it from Compose when absent;
-6. installs locked production dependencies using the PiGallery2 image and server architecture;
-7. recreates the Compose service and validates its writable curation, read-only images, and read-only browser-asset mounts.
+1. fast-forwards the clean Git checkout with `git pull --ff-only`;
+2. copies only production extension, CLI, and browser files;
+3. generates the host CLI `.env` with mode `0600`;
+4. atomically configures extension settings and `Server.customHTMLHead`;
+5. stops or Compose-creates the configured container;
+6. installs locked production dependencies using the PiGallery2 image;
+7. recreates the Compose service;
+8. validates writable curation, read-only images, and the read-only browser asset.
 
-The curation database and photo library are never replaced by the installer. If installation fails after stopping an existing container, the cleanup handler attempts to start it again.
+It never replaces the curation database or photo library. If installation fails after stopping a container, its cleanup handler attempts to start it again.
 
-For later upgrades, keep the private `.env` in the checkout and run:
+Later upgrades use the same command:
 
 ```bash
-cd /opt/pigallery2-curation
+cd /opt/pigallery2-curation-requests
 ./install.sh
 ```
 
-Set `PG2_INSTALL_GIT_PULL=false` only when installing from a local archive or intentionally testing an already checked-out revision.
-Automatic updates refuse tracked local source changes, so upgrades cannot silently combine a published release with hand-edited runtime files. The ignored private `.env` does not prevent an update.
+The installer refuses tracked local source changes so a published release cannot be silently mixed with hand-edited runtime files. The ignored private `.env` is preserved.
 
-## Installation B: development deployment script
+## Installation B: workstation development deployment
 
-The retained `deploy-to-server.sh` is appropriate during development, when the repository is built on a workstation and PiGallery2 runs on another Docker host.
+`deploy-to-server.sh` remains available for development when the source lives on one computer and PiGallery2 runs on another.
 
-### 1. Prepare PiGallery2 Compose mounts
-
-Add the curation and locale-specific custom-script mounts described above. The deployment script copies the source asset before creating a not-yet-existing container, so file bind mounts work on a first deployment.
-
-The script does not rewrite `docker-compose.yml`; deployment-specific Compose changes remain under the server administrator's control.
-
-### 2. Install local build requirements
-
-On the workstation:
+Requirements on the workstation are Node.js 22, npm, Python 3, SSH, and SCP.
 
 ```bash
-git clone <repository-url>
-cd <repository-directory>
 npm ci
-```
-
-Requirements are Node.js 22, npm, Python 3, SSH, and SCP.
-
-### 3. Configure deployment
-
-```bash
 cp .env.deploy.example .env.deploy
-```
-
-Edit `.env.deploy` and set every value for the target server. The important variables are:
-
-| Variable | Purpose |
-| --- | --- |
-| `PG2_DEPLOY_REMOTE` | SSH destination such as `deploy-user@photos.example.net` or an SSH config alias |
-| `PG2_DEPLOY_BASE` | Base host directory for this PiGallery2 deployment |
-| `PG2_DEPLOY_CONTAINER` | Actual Docker container name |
-| `PG2_DEPLOY_COMPOSE_DIR` | Host directory containing the Compose file |
-| `PG2_DEPLOY_COMPOSE_SERVICE` | Compose service name, which may differ from the container name |
-| `PG2_DEPLOY_EXTENSION_DIR` | Host destination for extension production files |
-| `PG2_DEPLOY_CLI_DIR` | Host destination for Python review/deletion tools |
-| `PG2_DEPLOY_CUSTOM_ASSETS_DIR` | Host directory bound into PiGallery2 locale assets |
-| `PG2_DEPLOY_CONFIG_FILE` | Host PiGallery2 `config.json` |
-| `PG2_DEPLOY_CONTAINER_EXTENSION_DIR` | Extension path inside the container |
-| `PG2_DEPLOY_CONTAINER_CURATION_DIR` | Destination of the writable curation bind mount |
-| `PG2_DEPLOY_CONTAINER_IMAGE_DIR` | Destination of the required read-only image mount |
-| `PG2_DEPLOY_CONTAINER_ASSET_PATH` | Read-only browser asset destination for the primary locale |
-| `PG2_DEPLOY_RECREATE_CONTAINER` | `true` to apply current Compose mounts with `--force-recreate` |
-| `PG2_DEPLOY_INSTALL_DEPENDENCIES` | `true` to install locked production packages using the PiGallery2 image |
-
-Only simple absolute paths containing letters, numbers, `.`, `_`, `-`, and `/` are accepted. Use an SSH config alias for non-default ports, identity files, jump hosts, or other SSH-specific settings.
-
-### 4. Configure the host CLI
-
-```bash
 cp cli/.env.example cli/.env
 ```
 
-Edit it with paths as seen by the **Docker host**, not paths inside the container:
-
-```dotenv
-PG2_CURATION_DB=/path/on/host/curation/curation.sqlite
-PG2_PHOTO_ROOT=/path/on/host/photo-library
-PG2_SIDECAR_STYLE=none
-```
-
-On the first deployment, the script installs this file remotely with mode `0600`. On upgrades, an existing remote CLI `.env` is always preserved. If the local `cli/.env` does not exist, only `.env.example` is copied.
-
-### 5. Deploy
-
-Validate the resolved private configuration without contacting the server:
+Configure `.env.deploy` with the SSH destination and remote host/container paths. Configure `cli/.env` with host paths to the remote curation database and photo root if it should be installed on the first deployment.
 
 ```bash
 ./deploy-to-server.sh --check-config
-```
-
-Then deploy:
-
-```bash
 ./deploy-to-server.sh
 ```
 
-The script:
+The script builds and tests locally, opens one multiplexed SSH connection, stops or creates the container, copies only production files, installs dependencies through the target image, updates `customHTMLHead`, recreates the service, and validates its mounts.
 
-1. builds and runs all tests locally;
-2. stages only extension production files, CLI files, and the browser asset;
-3. opens one shared SSH connection;
-4. stops the configured container, or creates it without starting when absent;
-5. copies the extension, CLI, and custom asset while preserving SQLite and existing CLI configuration;
-6. atomically sets `Server.customHTMLHead` in PiGallery2's existing `config.json` with a content-derived cache tag;
-7. optionally installs locked production dependencies using the PiGallery2 image and server architecture;
-8. recreates the Compose service by default so new mounts take effect;
-9. verifies that the container is running, curation is writable, images are read-only, and the primary-locale browser asset is mounted read-only.
-
-If deployment fails after stopping the container, the cleanup handler attempts to start it again.
-
-### 6. Configure and verify the extension
-
-Open PiGallery2's extension settings and configure the values documented under [Extension settings](#extension-settings). Restart or reload the extension, then hard-refresh the browser.
-
-Check the Docker logs for a line similar to:
-
-```text
-Curation database: /app/data/curation/curation.sqlite
-```
+An existing remote CLI `.env`, curation database, and unrelated custom assets are preserved.
 
 ## Installation C: manual
 
-Manual installation is suitable when working directly on the Docker host or when deployment over SSH is undesirable.
-
-### 1. Build and test a release checkout
+### 1. Build and test
 
 ```bash
 git clone <repository-url>
-cd <repository-directory>
+cd pigallery2-curation-requests
 npm ci
 npm test
 ```
 
-The build produces the checked-in JavaScript consumed by PiGallery2. Keep the compiled files from one release together; do not mix `server.js` or `config.js` with a different `src` bundle.
+### 2. Copy extension production files
 
-### 2. Stop PiGallery2 and create host directories
-
-Set paths appropriate for the server in a private environment file or shell environment. The following names are illustrative:
-
-```dotenv
-PG2_EXTENSION_DIR=/path/on/host/config/extensions/request-deletions
-PG2_CLI_DIR=/path/on/host/curation/cli
-PG2_CUSTOM_ASSETS_DIR=/path/on/host/custom_assets
-PG2_CONFIG_FILE=/path/on/host/config/config.json
-PG2_CONTAINER_NAME=pigallery2
-PG2_CONTAINER_EXTENSION_DIR=/app/data/config/extensions/request-deletions
-```
-
-Stop the container and create the three destination directories.
-
-### 3. Copy extension production files
-
-Copy only these files and directory structures into `PG2_EXTENSION_DIR`:
+Copy this exact bundle into the configured extension directory:
 
 ```text
 package.json
@@ -421,14 +307,14 @@ src/security/fingerprint.js
 src/security/paths.js
 ```
 
-The TypeScript sources, source maps, tests, documentation, and development dependencies are not required by the running extension.
+Do not mix JavaScript files from different releases.
 
-### 4. Install extension runtime dependencies
+### 3. Install runtime dependencies
 
-Install with the PiGallery2 image so native modules match the container architecture. With the PiGallery2 container already created but stopped:
+Use the PiGallery2 image so native modules match its architecture:
 
 ```bash
-PG2_IMAGE="$(docker inspect -f '{{.Config.Image}}' "$PG2_CONTAINER_NAME")"
+PG2_IMAGE="$(docker inspect -f '{{.Config.Image}}' "$PG2_CONTAINER")"
 docker run --rm --user 0:0 \
   --volume "$PG2_EXTENSION_DIR:$PG2_CONTAINER_EXTENSION_DIR" \
   --entrypoint npm \
@@ -436,9 +322,9 @@ docker run --rm --user 0:0 \
   ci --omit=dev --prefix "$PG2_CONTAINER_EXTENSION_DIR"
 ```
 
-### 5. Install the host commands
+### 4. Install CLI and browser files
 
-Copy these files into `PG2_CLI_DIR`:
+Copy these into the trusted host CLI directory:
 
 ```text
 cli/pg2-curation-review
@@ -449,198 +335,200 @@ cli/.env.example
 cli/README.md
 ```
 
-Preserve executable mode on the four command/script files. Copy `.env.example` to `.env`, set the host database and photo-root paths, and restrict it to the administrative account:
+Copy `custom_assets/custom-scripts.js` to the source path used by every locale bind mount.
 
-```bash
-chmod 600 "$PG2_CLI_DIR/.env"
-```
+### 5. Configure PiGallery2 atomically
 
-### 6. Install the browser asset
-
-Copy `custom_assets/custom-scripts.js` to:
-
-```text
-$PG2_CUSTOM_ASSETS_DIR/custom-scripts.js
-```
-
-Ensure the Compose file binds that file read-only into `/app/dist/<locale>/custom-scripts.js` for every PiGallery2 locale in use. Recreate the container after adding a new bind mount.
-
-### 7. Configure extension settings and `Server.customHTMLHead`
-
-Run the supplied atomic configuration helper while PiGallery2 is stopped:
+While PiGallery2 is stopped:
 
 ```bash
 python3 scripts/set_custom_html_head.py \
   --config "$PG2_CONFIG_FILE" \
   --asset "$PG2_CUSTOM_ASSETS_DIR/custom-scripts.js" \
-  --extension-folder request-deletions \
+  --extension-folder curation-requests \
   --database-path /app/data/curation/curation.sqlite \
   --requester-allowlist '*' \
-  --reason-max-length 4000
+  --comment-max-length 4000
 ```
 
-The helper parses the existing JSON, preserves unrelated settings, calculates a cache tag from the asset, and updates the named extension plus `Server.customHTMLHead`. It is idempotent and writes through a temporary file before replacing the original.
-
-The resulting setting loads `custom-scripts.js` relative to the current PiGallery2 locale without requiring a PiGallery2 source patch.
-
-### 8. Start, configure, and verify
-
-Start PiGallery2, enable/reload the extension if necessary, configure its settings, and hard-refresh the browser. Verify the curation database path in Docker logs and test the complete workflow with a disposable photo before using the executor on a real library.
+The helper preserves unrelated JSON settings, writes through a temporary file, retains file ownership/mode where permitted, and uses a content-derived browser cache tag.
 
 ## Extension settings
 
-Open PiGallery2 settings and locate the deletion-review extension.
-
 ### Curation SQLite path
 
-Recommended Docker value:
+Recommended container value:
 
 ```text
 /app/data/curation/curation.sqlite
 ```
 
-This path corresponds to the dedicated `/app/data/curation` bind mount. An absolute path is used as-is; a relative path is resolved against PiGallery2's configured database directory.
+An absolute path is used directly. A relative path is resolved against PiGallery2's database folder.
 
-Configure this before accepting real requests. If the setting is later moved, stop PiGallery2 and move the existing database deliberately rather than starting a second empty workflow database.
+### Maximum comment length
 
-### Maximum reason length
+Maximum accepted length for requester and resolution comments. Default: `4000`.
 
-Maximum characters accepted for a requester's optional explanation. Default: `4000`.
+The internal config key remains `reasonMaxLength` for migration compatibility with the deletion-only release.
 
-### Deletion request access
+### Curation request access
 
-Use the syntax documented under [Permission and state rules](#permission-and-state-rules). Approval and decline remain administrator-only regardless of this value.
+Use the allowlist syntax described under [Permission rules](#permission-rules). Reload the gallery after changing it; the frontend retrieves current-user decisions from the authenticated backend and contains no copied username list.
 
-The frontend queries the extension for current-user decisions on page load. After changing access settings, reload the gallery; no JavaScript user list needs to be edited or redeployed.
+## Host review and deletion
 
-## Reviewing and executing deletions
+The installer places both commands in the configured CLI directory. See [cli/README.md](cli/README.md) for the short reference.
 
-Run these commands on the host that can see both `curation.sqlite` and the real photo root.
-
-### Review
-
-From the deployed CLI directory:
+### Review active work
 
 ```bash
 ./pg2-curation-review
 ```
 
-The default `ACTIVE` view contains `PENDING` and `APPROVED` items. Other views are available:
+The default `ACTIVE` report contains:
+
+- open metadata correction requests;
+- pending deletion requests;
+- approved deletion work.
+
+Other filters include:
 
 ```bash
+./pg2-curation-review --state OPEN
+./pg2-curation-review --state RESOLVED
+./pg2-curation-review --state DISMISSED
+./pg2-curation-review --state WITHDRAWN
 ./pg2-curation-review --state PENDING
 ./pg2-curation-review --state APPROVED
-./pg2-curation-review --state DECLINED
-./pg2-curation-review --state EXECUTED
 ./pg2-curation-review --state ERROR
+./pg2-curation-review --state EXECUTED
 ./pg2-curation-review --state ALL
 ```
 
-### Dry run
+### Dry-run approved deletion work
 
-Omitting both mode flags is also a dry run:
+Dry-run is the default:
 
 ```bash
 ./pg2-curation-delete --dry-run
 ```
 
-Review every resolved path. Require `Fingerprint matches: YES` and `0 safety errors` before considering execution.
+Review every resolved path. Require `Fingerprint matches: YES` and `0 safety errors`.
 
-### Execute
+### Execute approved deletion work
 
 ```bash
 ./pg2-curation-delete --execute
 ```
 
-The command processes every item still in `APPROVED` state. Successful records become `EXECUTED`; validation or filesystem failures become `ERROR`. Queue entries cancelled after the initial query are skipped safely.
+The executor processes only rows in `deletion_items` whose state is still `APPROVED`. It verifies path containment, rejects final media symlinks, checks file size, modification time and SHA-256, locks SQLite, rechecks queue state, and only then unlinks.
 
-The command does not require root specifically; it requires an account with write permission to the configured photo root and curation database. Use the least-privileged suitable account.
+Metadata requests are stored in a separate table and cannot be selected by this command.
 
-After execution, run PiGallery2 indexing so removed photos disappear and error projections are refreshed.
+After execution, run PiGallery2 indexing so removed photos disappear.
 
 ### XMP sidecars
 
-Sidecar deletion is disabled unless explicitly configured:
-
-| Value | Behavior |
+| Setting | Behavior |
 | --- | --- |
 | `none` | Delete only the approved media file |
 | `appended` | Also delete `photo.jpg.xmp` |
 | `stem` | Also delete `photo.xmp` |
 
-Confirm the library's real naming convention first. `stem` can be unsafe when RAW and JPEG files share one sidecar.
+Confirm the library's naming convention. `stem` can be unsafe when RAW and JPEG files share one sidecar.
 
-Command-line flags override environment and `.env` values. See [cli/README.md](cli/README.md) or run either command with `--help`.
+## Security properties
 
-## Upgrades and backups
+- PiGallery2 has read-only photo-library access.
+- Media identity and filesystem paths come from PiGallery2's authorized media callback.
+- Request creation, ownership, comment visibility, and moderation are checked server-side.
+- Metadata categories are a fixed server-side enum.
+- Free text is length-limited and rendered with `textContent` in the browser.
+- Deletion approval recalculates a SHA-256 fingerprint.
+- Execution rechecks approval under a SQLite write lock.
+- Absolute, traversing, escaping, symlinked, missing, and changed files fail closed.
+- A request cancelled before the executor claims it is skipped.
+- Browser visibility and Curation mode never grant authority.
+
+See [SECURITY.md](SECURITY.md).
+
+## Upgrading from the deletion-only release
 
 Before upgrading:
 
-1. back up `curation.sqlite` together with its `-wal` and `-shm` files while PiGallery2 is stopped, or use SQLite's online backup mechanism;
-2. keep a current backup of the photo library;
-3. deploy the complete production bundle from one release;
-4. reinstall locked runtime dependencies when `package-lock.json` changes;
-5. restart PiGallery2 and check extension logs;
-6. hard-refresh the browser so the new content-derived asset URL is loaded.
+1. stop PiGallery2;
+2. back up the SQLite database together with WAL/SHM files;
+3. deploy `server.js`, `config.js`, and the complete compiled `src` tree from one release;
+4. reinstall production dependencies;
+5. deploy the updated browser script and cache-tagged loader;
+6. start PiGallery2 and check logs;
+7. hard-refresh the browser.
 
-The server installer preserves the database and photo library. The development deployment script preserves the database, existing remote CLI `.env`, and unrelated custom assets.
+Database migration from schema version 1 to 2 is automatic. Existing deletion states, requesters, comments/reasons, fingerprints, approvals, and audit events remain in their original tables.
+
+An existing private deployment may retain its old physical extension folder name if PiGallery2's extension config points to it consistently. New installations use `curation-requests`.
 
 ## Troubleshooting
 
-### Extension reports a missing or incompatible repository method
-
-The extension bundle is mixed across releases. Replace `server.js`, `config.js`, and the complete compiled `src` tree together, reinstall production dependencies, and restart.
-
-### Browser actions are all hidden
+### All buttons are hidden
 
 Check:
 
-1. `Server.customHTMLHead` contains the loader generated by `set_custom_html_head.py`;
-2. `custom-scripts.js` is mounted into the active locale directory;
-3. the browser can request `/pgapi/extension/pigallery2-curation-deletion-review/client-permissions` while authenticated;
-4. the extension is enabled and loaded;
-5. a hard refresh has cleared the previous page.
+1. Curation mode is enabled in the frame dropdown;
+2. `Server.customHTMLHead` contains the generated loader;
+3. the asset is mounted into the active locale;
+4. `/client-permissions` succeeds while authenticated;
+5. the extension is enabled;
+6. a hard refresh loaded the new cache-tagged asset.
 
-The browser script intentionally fails closed when permission loading fails.
+The frontend intentionally fails closed.
 
-### CLI says the database does not exist
+### Comment badge shows no details
 
-The CLI uses a **host path**, while the extension setting uses a **container path**. Both paths must point through the curation bind mount to the same file. Check `cli/.env`, the Compose mount, and the extension's logged database path.
+Ordinary users see only their own request rows. Administrators see every active request. Confirm that the session is authenticated and `/request-details/<token>` succeeds.
 
-### Requests exist as tags but not in SQLite
+### CLI cannot find the database
 
-Do not delete or replace `curation.sqlite` independently of PiGallery2's cached metadata. The SQLite database is authoritative; tags are projections. Restore the correct database backup or deliberately clear/reindex stale cache state before accepting new requests.
+The extension uses a container path while the CLI uses a host path. Both must resolve through the curation bind mount to the same file.
 
-### Browser asset returns 404 for one language
+### Tags exist but SQLite has no request
 
-Add the same source-file bind mount for that locale, such as `/app/dist/fr/custom-scripts.js`, recreate the container, and hard-refresh.
+SQLite is authoritative. Do not delete it independently of PiGallery2's cached metadata. Restore the correct backup or deliberately clear/reindex stale projections.
+
+### A locale returns 404 for `custom-scripts.js`
+
+Add the same source file as a read-only bind mount under that locale's `/app/dist/<locale>/` directory and recreate the container.
 
 ## Known PiGallery2 UI limitations
 
-- PiGallery2 3.5.x declares `minUserRole` on extension buttons but does not consistently use it while rendering. The custom script supplies correct presentation and the backend remains authoritative. The generic source-build patch in [patches/pigallery2-3.5.x-hide-role-buttons.patch](patches/pigallery2-3.5.x-hide-role-buttons.patch) implements native role filtering when building PiGallery2 itself.
-- Extension actions appear on gallery thumbnails, not inside the native lightbox.
-- Approve and Decline are state-dependent but are not restricted only to the saved-search pages because PiGallery2 does not expose a stable route/saved-search condition to extension buttons.
-- Request reasons are available in SQLite and the host review report, not rendered on photo thumbnails.
+- Saved searches cannot be nested.
+- PiGallery2 3.5.x does not consistently honor `minUserRole` when rendering extension buttons; the frontend script corrects presentation and the backend remains authoritative.
+- Inserting Curation mode depends on the current `button-frame-menu` dropdown DOM.
+- Metadata Resolve/Dismiss currently acts on all open non-deletion requests for one photo.
+- Extension actions appear on gallery thumbnails rather than inside the native lightbox in the tested PiGallery2 version.
 
-These limitations affect presentation, not backend authorization.
+The optional source-build patch under `patches/` implements native role filtering, but it is not required and the standard installation modifies no PiGallery2 base code.
 
 ## Repository layout
 
 ```text
-server.ts / server.js          PiGallery2 extension entry point
+server.ts / server.js          Extension entry point and secured routes
 config.ts / config.js          Extension settings template
-src/                           Domain, SQLite, PiGallery adapter, path/fingerprint code
-cli/                           Host review and deletion commands plus CLI .env example
-custom_assets/                 Frontend permission/state adaptation
-scripts/                       Safe config.json helper used for customHTMLHead
-tests/                         Node and Python security/workflow tests
+src/db/                        SQLite schema, migrations, and repositories
+src/domain.*                   States, categories, and synthetic projection
+src/pigallery/                 PiGallery integration and saved searches
+src/security/                  Path and fingerprint protection
+custom_assets/                 Curation mode, permissions, state, comments UI
+cli/                           Host review and deletion commands
+scripts/                       Atomic PiGallery config helper
+tests/                         Workflow, migration, installer, and executor tests
 examples/                      Parameterized Docker Compose example
-patches/                       Optional upstream PiGallery2 role-rendering patch
-docs/                          Historical technical design specification
-install.sh                     Recommended server-local installer and updater
-deploy-to-server.sh            Configurable SSH development deployment script
-.env.example                   Server installer configuration template
-.env.deploy.example            Workstation development-deployment template
+patches/                       Optional upstream role-filtering patch
+docs/                          Historical deletion-workflow specification
+install.sh                     Recommended server-local installer/updater
+deploy-to-server.sh            SSH/SCP development deployment tool
+.env.example                   Server installer template
+.env.deploy.example            Development deployment template
 ```
 
 ## Development
@@ -652,6 +540,6 @@ npm ci
 npm test
 ```
 
-Tests use only temporary SQLite databases and temporary photo roots. They never target a real library.
+TypeScript compilation writes the production JavaScript and source maps beside source files. Commit source and generated output together.
 
-The original design document is retained at [docs/technical-specification.md](docs/technical-specification.md); this README describes the current implemented behavior.
+The original deletion-only design is retained at [docs/technical-specification.md](docs/technical-specification.md) as historical design context.

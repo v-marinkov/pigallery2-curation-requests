@@ -23,6 +23,6 @@ The TypeScript build writes the production JavaScript files beside their sources
 
 - Keep PiGallery2's image mount read-only.
 - Treat browser visibility rules only as usability features; enforce every permission again on the server.
-- Add tests for state transitions, authorization, and destructive-operation safety.
+- Add tests for state transitions, comment visibility, authorization, migrations, and destructive-operation safety.
 - Never put real server addresses, usernames, photo paths, databases, or `.env` files in commits or test fixtures.
 - Run `npm test` before opening a pull request.

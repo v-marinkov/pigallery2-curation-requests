@@ -11,12 +11,13 @@ const fingerprint_1 = require("./src/security/fingerprint");
 const paths_1 = require("./src/security/paths");
 let curationRepository = null;
 const actorFromUser = (user) => ({ id: String(user.id), name: user.name });
+const isAdministrator = (user) => user.role >= UserDTO_1.UserRoles.Admin;
 const requireConfirmation = (body, field = 'confirm') => {
     if (body?.data?.customFields?.[field] !== true) {
         throw new Error('Explicit confirmation is required');
     }
 };
-const canRequestDeletion = (config, user) => {
+const canRequestCuration = (config, user) => {
     const configured = (config.requesterAllowlist ?? '*').trim();
     if (configured === '*') {
         return true;
@@ -35,51 +36,63 @@ const canRequestDeletion = (config, user) => {
     return accessTokens.includes(`user:${userName}`) ||
         accessTokens.some(token => token !== 'admin' && token === userName);
 };
-const isAdministrator = (user) => user.role >= UserDTO_1.UserRoles.Admin;
+const selectedRequestTypes = (body) => {
+    const fields = body?.data?.customFields || {};
+    const metadata = [];
+    const options = [
+        ['faces', 'faces'],
+        ['tags', 'tags'],
+        ['location', 'location'],
+        ['dateTime', 'date-time'],
+        ['titleCaption', 'title-caption'],
+        ['duplicate', 'duplicate'],
+        ['other', 'other']
+    ];
+    for (const [field, category] of options) {
+        if (fields[field] === true) {
+            metadata.push(category);
+        }
+    }
+    return { deletion: fields.deletion === true, metadata };
+};
+const sendError = (res, code, message) => {
+    res.json({ error: { code, message }, result: null });
+};
 /**
- * PiGallery2 3.5.2 does not apply minUserRole while rendering extension
- * buttons. Guard the route as User first so a non-admin receives a normal
- * PERMISSION_DENIED response instead of reaching PiGallery2's Admin
- * middleware (which logs the user out) or throwing an extension error (which
- * creates a persistent server notification).
+ * PiGallery2 3.5.2 does not consistently apply minUserRole while rendering
+ * extension buttons. Authenticate routes as User and return a normal error
+ * envelope from these guards, avoiding logout and persistent server alerts.
  */
-const addAdministratorGuard = (extension, apiPath, action) => {
+const addAdministratorGuard = (extension, apiPath, action, subject) => {
     extension.RESTApi.post.rawMiddleware([apiPath], UserDTO_1.UserRoles.User, (req, res, next) => {
         const user = req.session.context.user;
         if (isAdministrator(user)) {
             next();
             return;
         }
-        extension.Logger.warn(`${user.name}: blocked unauthorized attempt to ${action} a deletion request`);
-        res.json({
-            error: {
-                code: Error_1.ErrorCodes.PERMISSION_DENIED,
-                message: `Administrator role is required; ${user.name} cannot moderate deletion requests`
-            },
-            result: null
-        });
+        extension.Logger.warn(`${user.name}: blocked unauthorized attempt to ${action} ${subject}`);
+        sendError(res, Error_1.ErrorCodes.PERMISSION_DENIED, `Administrator role is required; ${user.name} cannot moderate curation requests`);
     });
 };
-const addDeletionRequesterGuard = (extension) => {
-    extension.RESTApi.post.rawMiddleware(['request-deletion'], UserDTO_1.UserRoles.User, (req, res, next) => {
+const addCurationRequesterGuard = (extension) => {
+    extension.RESTApi.post.rawMiddleware(['request-curation'], UserDTO_1.UserRoles.User, (req, res, next) => {
         const user = req.session.context.user;
-        if (canRequestDeletion(extension.config.getConfig(), user)) {
-            next();
+        if (!canRequestCuration(extension.config.getConfig(), user)) {
+            extension.Logger.warn(`${user.name}: blocked unauthorized attempt to request photo curation`);
+            sendError(res, Error_1.ErrorCodes.PERMISSION_DENIED, `User ${user.name} is not allowed to request photo curation`);
             return;
         }
-        extension.Logger.warn(`${user.name}: blocked unauthorized attempt to request photo deletion`);
-        res.json({
-            error: {
-                code: Error_1.ErrorCodes.PERMISSION_DENIED,
-                message: `User ${user.name} is not allowed to request photo deletions`
-            },
-            result: null
-        });
+        const selected = selectedRequestTypes(req.body);
+        if (!selected.deletion && selected.metadata.length === 0) {
+            sendError(res, Error_1.ErrorCodes.INPUT_ERROR, 'Select at least one requested correction');
+            return;
+        }
+        next();
     });
 };
-const deleteIcon = {
-    viewBox: '0 0 448 512',
-    items: '<path d="M135.2 17.7 128 40H32C14.3 40 0 54.3 0 72s14.3 32 32 32h384c17.7 0 32-14.3 32-32s-14.3-32-32-32h-96l-7.2-22.3A32 32 0 0 0 282.4-4H165.6a32 32 0 0 0-30.4 21.7zM53.2 152l20.2 312.9A48 48 0 0 0 121.3 510h205.4a48 48 0 0 0 47.9-45.1L394.8 152H53.2z"/>'
+const pencilIcon = {
+    viewBox: '0 0 512 512',
+    items: '<path d="M410.3 231 256 76.7 58.6 274.1c-4.1 4.1-7.2 9.2-8.9 14.8L.8 455.8a32 32 0 0 0 39.7 39.7l166.9-48.9c5.6-1.7 10.7-4.7 14.8-8.9L410.3 249.6a13.2 13.2 0 0 0 0-18.6zM174.4 406.6l-82 24 24-82 58 58zM496.8 79.8 432.2 15.2a52 52 0 0 0-73.5 0l-64.4 64.4 138.1 138.1 64.4-64.4a52 52 0 0 0 0-73.5z"/>'
 };
 const approveIcon = {
     viewBox: '0 0 448 512',
@@ -94,8 +107,8 @@ const cancelOwnRequestIcon = {
     items: '<path d="M48 224H0V56C0 42.7 10.7 32 24 32s24 10.7 24 24v62.1C91.2 45.7 170.1 0 256 0c141.4 0 256 114.6 256 256S397.4 512 256 512c-81.1 0-155.2-37.8-202.1-99.6-8-10.6-5.9-25.6 4.7-33.6s25.6-5.9 33.6 4.7C130.3 433.7 190.2 464 256 464c114.9 0 208-93.1 208-208S370.9 48 256 48c-72 0-138.7 37.5-176.6 98.6L144 144c13.3 0 24 10.7 24 24s-10.7 24-24 24H48v32z"/>'
 };
 const init = async (extension) => {
-    if (repository_1.CURATION_REPOSITORY_API_VERSION !== 3) {
-        throw new Error('Incompatible deletion-review files: replace server.js and the complete compiled src directory together');
+    if (repository_1.CURATION_REPOSITORY_API_VERSION !== 4) {
+        throw new Error('Incompatible curation-request files: replace server.js and the complete compiled src directory together');
     }
     const config = extension.config.getConfig();
     const databasePath = (0, paths_1.resolveDatabasePath)(config.databasePath, extension.paths.DBFolder);
@@ -104,16 +117,22 @@ const init = async (extension) => {
     extension.RESTApi.get.jsonResponse(['client-permissions'], UserDTO_1.UserRoles.User, (_params, _body, user) => {
         if (!user) {
             return {
-                userName: '',
-                canRequestDeletion: false,
-                canModerateDeletion: false
+                userId: '', userName: '', canRequestCuration: false, canModerateCuration: false
             };
         }
-        const currentConfig = extension.config.getConfig();
         return {
+            userId: String(user.id),
             userName: user.name,
-            canRequestDeletion: canRequestDeletion(currentConfig, user),
-            canModerateDeletion: isAdministrator(user)
+            canRequestCuration: canRequestCuration(extension.config.getConfig(), user),
+            canModerateCuration: isAdministrator(user)
+        };
+    });
+    extension.RESTApi.get.jsonResponse(['request-details/:token'], UserDTO_1.UserRoles.User, (params, _body, user) => {
+        if (!user || !params?.token) {
+            return { requests: [] };
+        }
+        return {
+            requests: curationRepository.getClientRequestDetails(params.token, actorFromUser(user), isAdministrator(user))
         };
     });
     await (0, adapter_1.ensureSavedSearches)(extension);
@@ -124,69 +143,148 @@ const init = async (extension) => {
         }
         return data.output;
     });
-    addDeletionRequesterGuard(extension);
+    addCurationRequesterGuard(extension);
     extension.ui.addMediaButton({
-        name: 'Request deletion',
-        svgIcon: deleteIcon,
-        apiPath: 'request-deletion',
+        name: 'Request curation',
+        svgIcon: pencilIcon,
+        apiPath: 'request-curation',
         minUserRole: UserDTO_1.UserRoles.User,
         skipVideos: true,
         reloadContent: true,
         popup: {
-            header: 'Request deletion?',
-            body: 'This photo will not be deleted immediately. Your request will be reviewed by an administrator.',
-            buttonString: 'Request deletion',
+            header: 'Request a correction',
+            body: 'Select one or more problems. Nothing in the photo library is changed until an administrator reviews the request.',
+            buttonString: 'Submit request',
             customFields: [
-                { id: 'reason', label: 'Reason (optional)', type: 'string', defaultValue: '' },
-                { id: 'confirm', label: 'I am sure I want to request deletion', type: 'boolean', defaultValue: false, required: true }
+                { id: 'deletion', label: 'Request deletion', type: 'boolean', defaultValue: false },
+                { id: 'faces', label: 'Wrong or missing faces', type: 'boolean', defaultValue: false },
+                { id: 'tags', label: 'Wrong or missing tags', type: 'boolean', defaultValue: false },
+                { id: 'location', label: 'Wrong or missing location', type: 'boolean', defaultValue: false },
+                { id: 'dateTime', label: 'Wrong date or time', type: 'boolean', defaultValue: false },
+                { id: 'titleCaption', label: 'Wrong or missing title/caption', type: 'boolean', defaultValue: false },
+                { id: 'duplicate', label: 'Duplicate photo', type: 'boolean', defaultValue: false },
+                { id: 'other', label: 'Other', type: 'boolean', defaultValue: false },
+                { id: 'comment', label: 'Comment (optional)', type: 'string', defaultValue: '' }
             ]
         }
     }, async (_params, body, user, media, mediaRepository) => {
-        if (!canRequestDeletion(extension.config.getConfig(), user)) {
-            extension.Logger.warn(`${user.name}: blocked unauthorized attempt to request photo deletion`);
+        if (!canRequestCuration(extension.config.getConfig(), user)) {
+            extension.Logger.warn(`${user.name}: blocked unauthorized attempt to request photo curation`);
             return;
         }
-        requireConfirmation(body);
+        const selected = selectedRequestTypes(body);
+        if (!selected.deletion && selected.metadata.length === 0) {
+            throw new Error('At least one requested correction is required');
+        }
         const mediaPaths = (0, adapter_1.getMediaPaths)(extension, media);
-        const fingerprint = await (0, fingerprint_1.fingerprintFile)(mediaPaths.absolutePath);
-        const result = curationRepository.requestDeletion({
-            relativePath: mediaPaths.relativePath,
-            mediaType: 'photo',
-            fingerprint,
-            actor: actorFromUser(user),
-            reason: body?.data?.customFields?.reason
-        });
+        const actor = actorFromUser(user);
+        const comment = body?.data?.customFields?.comment;
+        if (selected.deletion) {
+            const fingerprint = await (0, fingerprint_1.fingerprintFile)(mediaPaths.absolutePath);
+            curationRepository.requestDeletion({
+                relativePath: mediaPaths.relativePath,
+                mediaType: 'photo',
+                fingerprint,
+                actor,
+                reason: comment
+            });
+        }
+        if (selected.metadata.length > 0) {
+            curationRepository.requestMetadata({
+                relativePath: mediaPaths.relativePath,
+                mediaType: 'photo',
+                categories: selected.metadata,
+                actor,
+                comment
+            });
+        }
         await (0, adapter_1.saveCurationProjection)(media, mediaRepository, curationRepository.getProjection(mediaPaths.relativePath));
-        extension.Logger.info(`${user.name}: ${result.status} deletion for ${mediaPaths.relativePath}`);
+        extension.Logger.info(`${user.name}: requested ${[
+            ...(selected.deletion ? ['deletion'] : []),
+            ...selected.metadata
+        ].join(', ')} for ${mediaPaths.relativePath}`);
     });
     extension.ui.addMediaButton({
-        name: 'Cancel my deletion request',
+        name: 'Cancel my curation requests',
         svgIcon: cancelOwnRequestIcon,
-        apiPath: 'cancel-own-deletion-request',
+        apiPath: 'cancel-own-curation-requests',
         minUserRole: UserDTO_1.UserRoles.User,
         skipVideos: true,
         reloadContent: true,
         popup: {
-            header: 'Cancel your deletion request?',
-            body: 'Only your own request will be withdrawn. Requests made by other family members are not affected.',
-            buttonString: 'Cancel my request',
+            header: 'Cancel your curation requests?',
+            body: 'All of your active requests for this photo will be withdrawn. Requests made by other people are not affected.',
+            buttonString: 'Cancel my requests',
             customFields: [
-                { id: 'confirm', label: 'Yes, withdraw my deletion request', type: 'boolean', defaultValue: false, required: true }
+                { id: 'confirm', label: 'Yes, withdraw my active requests', type: 'boolean', defaultValue: false, required: true }
             ]
         }
     }, async (_params, body, user, media, mediaRepository) => {
         requireConfirmation(body);
         const mediaPaths = (0, adapter_1.getMediaPaths)(extension, media);
-        const result = curationRepository.withdrawOwnDeletionRequest(mediaPaths.relativePath, actorFromUser(user));
-        if (result.status !== 'withdrawn') {
-            extension.Logger.warn(`${user.name}: blocked attempt to cancel another user's or inactive deletion request for ${mediaPaths.relativePath}`);
+        const result = curationRepository.withdrawOwnCurationRequests(mediaPaths.relativePath, actorFromUser(user));
+        if (!result.deletionWithdrawn && result.metadataWithdrawn === 0) {
+            extension.Logger.warn(`${user.name}: blocked attempt to cancel another user's or inactive requests for ${mediaPaths.relativePath}`);
             return;
         }
         await (0, adapter_1.saveCurationProjection)(media, mediaRepository, curationRepository.getProjection(mediaPaths.relativePath));
-        extension.Logger.info(`${user.name}: withdrew own deletion request for ${mediaPaths.relativePath}; ` +
-            `${result.remainingRequesters} active requester(s) remain`);
+        extension.Logger.info(`${user.name}: withdrew own curation requests for ${mediaPaths.relativePath}`);
     });
-    addAdministratorGuard(extension, 'approve-deletion', 'approve');
+    addAdministratorGuard(extension, 'resolve-metadata-requests', 'resolve', 'metadata requests');
+    (0, adapter_1.addMediaButtonWithApiRole)(extension, {
+        name: 'Resolve metadata requests (admin only)',
+        svgIcon: approveIcon,
+        apiPath: 'resolve-metadata-requests',
+        minUserRole: UserDTO_1.UserRoles.Admin,
+        skipVideos: true,
+        reloadContent: true,
+        popup: {
+            header: 'Resolve metadata requests?',
+            body: 'Marks every open non-deletion request for this photo as resolved.',
+            buttonString: 'Mark resolved',
+            customFields: [
+                { id: 'resolutionComment', label: 'Resolution comment (optional)', type: 'string', defaultValue: '' },
+                { id: 'confirm', label: 'Yes, these corrections are resolved', type: 'boolean', defaultValue: false, required: true }
+            ]
+        }
+    }, UserDTO_1.UserRoles.Admin, async (_params, body, user, media, mediaRepository) => {
+        if (!isAdministrator(user)) {
+            extension.Logger.warn(`${user.name}: blocked unauthorized attempt to resolve metadata requests`);
+            return;
+        }
+        requireConfirmation(body);
+        const mediaPaths = (0, adapter_1.getMediaPaths)(extension, media);
+        curationRepository.closeMetadataRequests(mediaPaths.relativePath, actorFromUser(user), 'RESOLVED', body?.data?.customFields?.resolutionComment);
+        await (0, adapter_1.saveCurationProjection)(media, mediaRepository, curationRepository.getProjection(mediaPaths.relativePath));
+    });
+    addAdministratorGuard(extension, 'dismiss-metadata-requests', 'dismiss', 'metadata requests');
+    (0, adapter_1.addMediaButtonWithApiRole)(extension, {
+        name: 'Dismiss metadata requests (admin only)',
+        svgIcon: declineIcon,
+        apiPath: 'dismiss-metadata-requests',
+        minUserRole: UserDTO_1.UserRoles.Admin,
+        skipVideos: true,
+        reloadContent: true,
+        popup: {
+            header: 'Dismiss metadata requests?',
+            body: 'Dismisses every open non-deletion request for this photo without changing the photo.',
+            buttonString: 'Dismiss',
+            customFields: [
+                { id: 'resolutionComment', label: 'Dismissal comment (optional)', type: 'string', defaultValue: '' },
+                { id: 'confirm', label: 'Yes, dismiss these requests', type: 'boolean', defaultValue: false, required: true }
+            ]
+        }
+    }, UserDTO_1.UserRoles.Admin, async (_params, body, user, media, mediaRepository) => {
+        if (!isAdministrator(user)) {
+            extension.Logger.warn(`${user.name}: blocked unauthorized attempt to dismiss metadata requests`);
+            return;
+        }
+        requireConfirmation(body);
+        const mediaPaths = (0, adapter_1.getMediaPaths)(extension, media);
+        curationRepository.closeMetadataRequests(mediaPaths.relativePath, actorFromUser(user), 'DISMISSED', body?.data?.customFields?.resolutionComment);
+        await (0, adapter_1.saveCurationProjection)(media, mediaRepository, curationRepository.getProjection(mediaPaths.relativePath));
+    });
+    addAdministratorGuard(extension, 'approve-deletion', 'approve', 'a deletion request');
     (0, adapter_1.addMediaButtonWithApiRole)(extension, {
         name: 'Approve deletion (admin only)',
         svgIcon: approveIcon,
@@ -196,7 +294,7 @@ const init = async (extension) => {
         reloadContent: true,
         popup: {
             header: 'Approve deletion?',
-            body: 'Administrators only. Approval does NOT delete this file; it adds the photo to the host-side deletion queue.',
+            body: 'Approval does not delete this file; it adds the photo to the host-side deletion queue.',
             buttonString: 'Approve',
             customFields: [
                 { id: 'confirm', label: 'Yes, approve this photo for permanent deletion', type: 'boolean', defaultValue: false, required: true }
@@ -210,11 +308,10 @@ const init = async (extension) => {
         requireConfirmation(body);
         const mediaPaths = (0, adapter_1.getMediaPaths)(extension, media);
         const fingerprint = await (0, fingerprint_1.fingerprintFile)(mediaPaths.absolutePath);
-        const item = curationRepository.approve(mediaPaths.relativePath, actorFromUser(user), fingerprint);
+        curationRepository.approve(mediaPaths.relativePath, actorFromUser(user), fingerprint);
         await (0, adapter_1.saveCurationProjection)(media, mediaRepository, curationRepository.getProjection(mediaPaths.relativePath));
-        extension.Logger.info(`${user.name}: approved deletion for ${mediaPaths.relativePath}`);
     });
-    addAdministratorGuard(extension, 'decline-deletion', 'decline');
+    addAdministratorGuard(extension, 'decline-deletion', 'decline', 'a deletion request');
     (0, adapter_1.addMediaButtonWithApiRole)(extension, {
         name: 'Decline deletion (admin only)',
         svgIcon: declineIcon,
@@ -224,7 +321,7 @@ const init = async (extension) => {
         reloadContent: true,
         popup: {
             header: 'Decline deletion request?',
-            body: 'Administrators only. Pending, approved, or failed deletion work will be removed from the active queue. The photo remains in the family library and request history is retained for audit.',
+            body: 'Removes pending, approved, or failed deletion work from the active queue. Request history is retained.',
             buttonString: 'Decline',
             customFields: [
                 { id: 'confirm', label: 'Yes, decline this deletion request', type: 'boolean', defaultValue: false, required: true }
@@ -237,9 +334,8 @@ const init = async (extension) => {
         }
         requireConfirmation(body);
         const mediaPaths = (0, adapter_1.getMediaPaths)(extension, media);
-        const item = curationRepository.decline(mediaPaths.relativePath, actorFromUser(user));
+        curationRepository.decline(mediaPaths.relativePath, actorFromUser(user));
         await (0, adapter_1.saveCurationProjection)(media, mediaRepository, curationRepository.getProjection(mediaPaths.relativePath));
-        extension.Logger.info(`${user.name}: declined deletion for ${mediaPaths.relativePath}`);
     });
 };
 exports.init = init;

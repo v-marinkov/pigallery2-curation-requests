@@ -1,7 +1,7 @@
 {
-  "name": "pigallery2-curation-deletion-review",
-  "version": "0.3.0",
-  "description": "Moderated deletion requests for PiGallery2 without granting it filesystem write access",
+  "name": "pigallery2-curation-requests",
+  "version": "0.4.0",
+  "description": "Moderated deletion and metadata correction requests for PiGallery2",
   "private": true,
   "license": "MIT",
   "keywords": [
@@ -17,7 +17,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test tests/*.test.js && python3 -m unittest discover -s tests -p 'test_*.py'",
+    "test": "npm run build && node --check custom_assets/custom-scripts.js && node --test tests/*.test.js && python3 -m unittest discover -s tests -p 'test_*.py'",
     "clean": "find . -type f -name '*.js' ! -path './node_modules/*' -delete && find . -type f -name '*.js.map' ! -path './node_modules/*' -delete"
   },
   "dependencies": {

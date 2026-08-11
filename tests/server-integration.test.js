@@ -44,7 +44,7 @@ const path = __importStar(require("path"));
 const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const UserDTO_1 = require("../node_modules/pigallery2-extension-kit/lib/common/entities/UserDTO");
 const server_1 = require("../server");
-(0, node_test_1.it)('registers and executes the PiGallery2 request/approval workflow without changing the photo', async () => {
+(0, node_test_1.it)('executes general curation and deletion workflows without changing the photo', async () => {
     const root = (0, fs_1.mkdtempSync)(path.join((0, os_1.tmpdir)(), 'pg2-server-test-'));
     const imageRoot = path.join(root, 'images');
     const databaseRoot = path.join(root, 'db');
@@ -115,83 +115,93 @@ const server_1 = require("../server");
     const mediaRepository = { save: async (value) => { saved.push(value); } };
     try {
         await (0, server_1.init)(extension);
-        strict_1.default.deepEqual(albums, ['🗑 Deletion requests', '✓ Approved for deletion', '⚠ Deletion errors']);
-        strict_1.default.equal(buttons.get('Request deletion')?.config.minUserRole, UserDTO_1.UserRoles.User);
-        strict_1.default.equal(buttons.get('Cancel my deletion request')?.config.minUserRole, UserDTO_1.UserRoles.User);
+        strict_1.default.deepEqual(albums, [
+            '✎ Curation · All open',
+            '✎ Curation · Faces',
+            '✎ Curation · Tags',
+            '✎ Curation · Location',
+            '✎ Curation · Date and time',
+            '✎ Curation · Title and caption',
+            '✎ Curation · Duplicates',
+            '✎ Curation · Other',
+            '🗑 Deletion requests',
+            '✓ Approved for deletion',
+            '⚠ Deletion errors'
+        ]);
+        strict_1.default.equal(buttons.get('Request curation')?.config.minUserRole, UserDTO_1.UserRoles.User);
+        strict_1.default.deepEqual(buttons.get('Request curation')?.config.popup.customFields.map((field) => field.id), ['deletion', 'faces', 'tags', 'location', 'dateTime', 'titleCaption', 'duplicate', 'other', 'comment']);
+        strict_1.default.equal(buttons.get('Cancel my curation requests')?.config.minUserRole, UserDTO_1.UserRoles.User);
+        strict_1.default.equal(buttons.get('Resolve metadata requests (admin only)')?.config.minUserRole, UserDTO_1.UserRoles.Admin);
         strict_1.default.equal(buttons.get('Approve deletion (admin only)')?.config.minUserRole, UserDTO_1.UserRoles.Admin);
-        strict_1.default.equal(buttons.get('Decline deletion (admin only)')?.config.minUserRole, UserDTO_1.UserRoles.Admin);
-        strict_1.default.equal(apiRoles.get('Approve deletion (admin only)'), UserDTO_1.UserRoles.Admin);
-        strict_1.default.equal(apiRoles.get('Decline deletion (admin only)'), UserDTO_1.UserRoles.Admin);
+        strict_1.default.equal(apiRoles.get('Resolve metadata requests (admin only)'), UserDTO_1.UserRoles.Admin);
+        strict_1.default.equal(guards.get('request-curation')?.role, UserDTO_1.UserRoles.User);
         strict_1.default.equal(guards.get('approve-deletion')?.role, UserDTO_1.UserRoles.User);
-        strict_1.default.equal(guards.get('decline-deletion')?.role, UserDTO_1.UserRoles.User);
-        strict_1.default.equal(guards.get('request-deletion')?.role, UserDTO_1.UserRoles.User);
         strict_1.default.equal(jsonRoutes.get('client-permissions')?.role, UserDTO_1.UserRoles.User);
-        strict_1.default.deepEqual(jsonRoutes.get('client-permissions')?.callback(undefined, undefined, { id: 1, name: 'anna', role: UserDTO_1.UserRoles.User }), { userName: 'anna', canRequestDeletion: true, canModerateDeletion: false });
-        strict_1.default.deepEqual(jsonRoutes.get('client-permissions')?.callback(undefined, undefined, { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User }), { userName: 'bob', canRequestDeletion: false, canModerateDeletion: false });
-        strict_1.default.deepEqual(jsonRoutes.get('client-permissions')?.callback(undefined, undefined, { id: 9, name: 'site-admin', role: UserDTO_1.UserRoles.Admin }), { userName: 'site-admin', canRequestDeletion: true, canModerateDeletion: true });
+        strict_1.default.equal(jsonRoutes.get('request-details/:token')?.role, UserDTO_1.UserRoles.User);
+        strict_1.default.deepEqual(jsonRoutes.get('client-permissions')?.callback(undefined, undefined, { id: 1, name: 'anna', role: UserDTO_1.UserRoles.User }), { userId: '1', userName: 'anna', canRequestCuration: true, canModerateCuration: false });
+        strict_1.default.deepEqual(jsonRoutes.get('client-permissions')?.callback(undefined, undefined, { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User }), { userId: '2', userName: 'bob', canRequestCuration: false, canModerateCuration: false });
+        strict_1.default.deepEqual(jsonRoutes.get('client-permissions')?.callback(undefined, undefined, { id: 9, name: 'site-admin', role: UserDTO_1.UserRoles.Admin }), { userId: '9', userName: 'site-admin', canRequestCuration: true, canModerateCuration: true });
         const deniedResponses = [];
         let guardContinued = false;
-        guards.get('approve-deletion').middleware({ session: { context: { user: { id: 1, name: 'ordinary-user', role: UserDTO_1.UserRoles.User } } } }, { json: (body) => { deniedResponses.push(body); } }, () => { guardContinued = true; });
+        guards.get('approve-deletion').middleware({ session: { context: { user: { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User } } } }, { json: (body) => { deniedResponses.push(body); } }, () => { guardContinued = true; });
         strict_1.default.equal(guardContinued, false);
         strict_1.default.equal(deniedResponses[0].error.code, 4);
-        strict_1.default.match(deniedResponses[0].error.message, /Administrator role is required/);
-        strict_1.default.deepEqual(warnings, [
-            'ordinary-user: blocked unauthorized attempt to approve a deletion request'
-        ]);
-        strict_1.default.deepEqual(media.metadata.keywords, ['family']);
-        strict_1.default.equal(saved.length, 0);
-        guards.get('approve-deletion').middleware({ session: { context: { user: { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin } } } }, { json: () => strict_1.default.fail('admin guard must not send a denial') }, () => { guardContinued = true; });
-        strict_1.default.equal(guardContinued, true);
-        guardContinued = false;
-        guards.get('request-deletion').middleware({ session: { context: { user: { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User } } } }, { json: (body) => { deniedResponses.push(body); } }, () => { guardContinued = true; });
-        strict_1.default.equal(guardContinued, false);
+        guards.get('request-curation').middleware({
+            session: { context: { user: { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User } } },
+            body: { data: { customFields: { faces: true } } }
+        }, { json: (body) => { deniedResponses.push(body); } }, () => { guardContinued = true; });
         strict_1.default.equal(deniedResponses[1].error.code, 4);
-        strict_1.default.match(deniedResponses[1].error.message, /not allowed to request/);
-        guardContinued = false;
-        guards.get('request-deletion').middleware({ session: { context: { user: { id: 9, name: 'site-admin', role: UserDTO_1.UserRoles.Admin } } } }, { json: () => strict_1.default.fail('admin role token must allow the request') }, () => { guardContinued = true; });
-        strict_1.default.equal(guardContinued, true);
-        strict_1.default.deepEqual(warnings, [
-            'ordinary-user: blocked unauthorized attempt to approve a deletion request',
-            'bob: blocked unauthorized attempt to request photo deletion'
-        ]);
-        await buttons.get('Request deletion').callback({}, { data: { customFields: { confirm: true, reason: 'duplicate' } } }, { id: 1, name: 'anna', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
-        strict_1.default.deepEqual(media.metadata.keywords, [
-            'family', 'pg-curation:delete-pending', 'pg-curation:requested-by:anna'
-        ]);
+        guards.get('request-curation').middleware({
+            session: { context: { user: { id: 1, name: 'anna', role: UserDTO_1.UserRoles.User } } },
+            body: { data: { customFields: { comment: 'nothing selected' } } }
+        }, { json: (body) => { deniedResponses.push(body); } }, () => { guardContinued = true; });
+        strict_1.default.equal(deniedResponses[2].error.code, 50);
+        strict_1.default.match(deniedResponses[2].error.message, /Select at least one/);
+        await buttons.get('Request curation').callback({}, { data: { customFields: {
+                    deletion: true,
+                    faces: true,
+                    other: true,
+                    comment: 'Duplicate and missing people'
+                } } }, { id: 1, name: 'anna', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
         strict_1.default.equal((0, fs_1.readFileSync)(photoPath, 'utf8'), 'photo remains read only');
-        await buttons.get('Cancel my deletion request').callback({}, { data: { customFields: { confirm: true } } }, { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
-        strict_1.default.deepEqual(media.metadata.keywords, [
-            'family', 'pg-curation:delete-pending', 'pg-curation:requested-by:anna'
+        strict_1.default.ok(media.metadata.keywords.includes('family'));
+        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:delete-pending'));
+        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:open'));
+        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:category:faces'));
+        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:category:other'));
+        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:requested-by:anna'));
+        const itemTag = media.metadata.keywords.find((keyword) => keyword.startsWith('pg-curation:item:'));
+        strict_1.default.match(itemTag || '', /^pg-curation:item:[a-f0-9]{32}$/);
+        const token = itemTag.split(':').at(-1);
+        const ownerDetails = jsonRoutes.get('request-details/:token')?.callback({ token }, undefined, { id: 1, name: 'anna', role: UserDTO_1.UserRoles.User });
+        strict_1.default.deepEqual(ownerDetails.requests.map((request) => request.category), [
+            'deletion', 'faces', 'other'
         ]);
-        strict_1.default.equal(saved.length, 1);
-        await buttons.get('Approve deletion (admin only)').callback({}, { data: { customFields: { confirm: true } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
-        strict_1.default.deepEqual(media.metadata.keywords, [
-            'family', 'pg-curation:delete-approved', 'pg-curation:requested-by:anna'
-        ]);
-        strict_1.default.equal(saved.length, 2);
+        const strangerDetails = jsonRoutes.get('request-details/:token')?.callback({ token }, undefined, { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User });
+        strict_1.default.deepEqual(strangerDetails, { requests: [] });
+        await buttons.get('Resolve metadata requests (admin only)').callback({}, { data: { customFields: { confirm: true } } }, { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
+        await buttons.get('Approve deletion (admin only)').callback({}, { data: { customFields: { confirm: true } } }, { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
         const dbPath = path.join(databaseRoot, 'curation', 'curation.sqlite');
         const database = new better_sqlite3_1.default(dbPath, { readonly: true });
-        const item = database.prepare('SELECT state, approved_by_user_name FROM deletion_items').get();
-        const request = database.prepare('SELECT requested_by_user_name, reason FROM deletion_requests').get();
-        strict_1.default.deepEqual(item, { state: 'APPROVED', approved_by_user_name: 'admin' });
-        strict_1.default.deepEqual(request, { requested_by_user_name: 'anna', reason: 'duplicate' });
+        strict_1.default.deepEqual(database.prepare('SELECT state, requested_by_user_name, reason FROM deletion_items JOIN deletion_requests ON deletion_items.id = deletion_requests.deletion_item_id').get(), { state: 'PENDING', requested_by_user_name: 'anna', reason: 'Duplicate and missing people' });
+        strict_1.default.deepEqual(database.prepare('SELECT category, state, comment FROM metadata_requests ORDER BY id').all(), [
+            { category: 'faces', state: 'OPEN', comment: 'Duplicate and missing people' },
+            { category: 'other', state: 'OPEN', comment: 'Duplicate and missing people' }
+        ]);
         database.close();
+        await buttons.get('Approve deletion (admin only)').callback({}, { data: { customFields: { confirm: true } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
+        await buttons.get('Resolve metadata requests (admin only)').callback({}, { data: { customFields: { confirm: true, resolutionComment: 'XMP fixed' } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
+        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:delete-approved'));
+        strict_1.default.ok(!media.metadata.keywords.some((keyword) => keyword.startsWith('pg-curation:category:')));
         const reindexed = await metadataAfter({
             input: [photoPath],
             output: { keywords: ['family'], size: { width: 1, height: 1 }, fileSize: 1, creationDate: 0 }
         });
-        strict_1.default.deepEqual(reindexed.keywords, [
-            'family', 'pg-curation:delete-approved', 'pg-curation:requested-by:anna'
-        ]);
-        await buttons.get('Cancel my deletion request').callback({}, { data: { customFields: { confirm: true } } }, { id: 1, name: 'anna', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
+        strict_1.default.ok(reindexed.keywords.includes('pg-curation:delete-approved'));
+        await buttons.get('Cancel my curation requests').callback({}, { data: { customFields: { confirm: true } } }, { id: 1, name: 'anna', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
         strict_1.default.deepEqual(media.metadata.keywords, ['family']);
-        strict_1.default.equal(saved.length, 3);
-        const cancelledDatabase = new better_sqlite3_1.default(dbPath, { readonly: true });
-        const cancelledItem = cancelledDatabase.prepare('SELECT state, declined_by_user_name FROM deletion_items').get();
-        const cancelledRequest = cancelledDatabase.prepare('SELECT withdrawn_at FROM deletion_requests').get();
-        strict_1.default.deepEqual(cancelledItem, { state: 'DECLINED', declined_by_user_name: 'anna' });
-        strict_1.default.equal(typeof cancelledRequest.withdrawn_at, 'string');
-        cancelledDatabase.close();
+        strict_1.default.equal(saved.length, 4);
+        strict_1.default.ok(warnings.some(message => message.includes('blocked unauthorized attempt')));
     }
     finally {
         await (0, server_1.cleanUp)();

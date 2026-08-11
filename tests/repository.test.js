@@ -41,6 +41,7 @@ const strict_1 = __importDefault(require("node:assert/strict"));
 const fs_1 = require("fs");
 const os_1 = require("os");
 const path = __importStar(require("path"));
+const better_sqlite3_1 = __importDefault(require("better-sqlite3"));
 const database_1 = require("../src/db/database");
 const repository_1 = require("../src/db/repository");
 const domain_1 = require("../src/domain");
@@ -84,9 +85,11 @@ const fingerprint = {
         strict_1.default.equal(info?.item.state, 'PENDING');
         strict_1.default.equal(info?.requests.length, 2);
         strict_1.default.deepEqual(info?.requests.map(request => request.reason), ['duplicate', 'blurry']);
-        strict_1.default.deepEqual(repository.getProjection('2024/Christmas/IMG_1234.jpg'), {
-            state: 'PENDING', requesterNames: ['anna', 'bob']
-        });
+        const projection = repository.getProjection('2024/Christmas/IMG_1234.jpg');
+        strict_1.default.equal(projection?.state, 'PENDING');
+        strict_1.default.deepEqual(projection?.requesterNames, ['anna', 'bob']);
+        strict_1.default.deepEqual(projection?.metadataCategories, []);
+        strict_1.default.match(projection?.itemToken || '', /^[a-f0-9]{32}$/);
         repository.close();
     });
     (0, node_test_1.it)('approves idempotently and lets an administrator withdraw approval', () => {
@@ -139,9 +142,9 @@ const fingerprint = {
         strict_1.default.equal(first.status, 'withdrawn');
         strict_1.default.equal(first.item?.state, 'PENDING');
         strict_1.default.equal(first.remainingRequesters, 1);
-        strict_1.default.deepEqual(repository.getProjection('photo.jpg'), {
-            state: 'PENDING', requesterNames: ['bob']
-        });
+        const projection = repository.getProjection('photo.jpg');
+        strict_1.default.equal(projection?.state, 'PENDING');
+        strict_1.default.deepEqual(projection?.requesterNames, ['bob']);
         const duplicate = repository.withdrawOwnDeletionRequest('photo.jpg', { id: '1', name: 'anna' });
         strict_1.default.equal(duplicate.status, 'not_requester');
         strict_1.default.equal(duplicate.remainingRequesters, 1);
@@ -150,9 +153,7 @@ const fingerprint = {
         strict_1.default.equal(last.item?.state, 'DECLINED');
         strict_1.default.equal(last.item?.declinedByUserName, 'bob');
         strict_1.default.equal(last.remainingRequesters, 0);
-        strict_1.default.deepEqual(repository.getProjection('photo.jpg'), {
-            state: 'DECLINED', requesterNames: []
-        });
+        strict_1.default.equal(repository.getProjection('photo.jpg'), null);
         strict_1.default.deepEqual(repository.getInfo('photo.jpg')?.requests.map(request => ({
             name: request.requestedByUserName,
             withdrawn: request.withdrawnAt !== null
@@ -176,6 +177,68 @@ const fingerprint = {
         strict_1.default.equal(result.remainingRequesters, 0);
         repository.close();
     });
+    (0, node_test_1.it)('stores independent metadata categories and exposes comments only to owners or administrators', () => {
+        const repository = createRepository();
+        const first = repository.requestMetadata({
+            relativePath: 'photo.jpg', mediaType: 'photo',
+            categories: ['faces', 'location'], actor: { id: '1', name: 'anna' },
+            comment: 'Please identify the grandparents'
+        });
+        const duplicate = repository.requestMetadata({
+            relativePath: 'photo.jpg', mediaType: 'photo',
+            categories: ['faces'], actor: { id: '1', name: 'anna' }, comment: 'duplicate click'
+        });
+        repository.requestMetadata({
+            relativePath: 'photo.jpg', mediaType: 'photo',
+            categories: ['tags'], actor: { id: '2', name: 'bob' }, comment: 'missing holiday tag'
+        });
+        strict_1.default.deepEqual(first, { created: ['faces', 'location'], existing: [] });
+        strict_1.default.deepEqual(duplicate, { created: [], existing: ['faces'] });
+        const projection = repository.getProjection('photo.jpg');
+        strict_1.default.equal(projection?.state, null);
+        strict_1.default.deepEqual(projection?.metadataCategories, ['faces', 'location', 'tags']);
+        strict_1.default.deepEqual(projection?.requesterNames, ['anna', 'bob']);
+        strict_1.default.match(projection?.itemToken || '', /^[a-f0-9]{32}$/);
+        const ownerDetails = repository.getClientRequestDetails(projection.itemToken, { id: '1', name: 'anna' }, false);
+        strict_1.default.deepEqual(ownerDetails.map(detail => detail.category), ['faces', 'location']);
+        strict_1.default.ok(ownerDetails.every(detail => detail.ownRequest));
+        strict_1.default.equal(ownerDetails[0].comment, 'Please identify the grandparents');
+        strict_1.default.deepEqual(repository.getClientRequestDetails(projection.itemToken, { id: '3', name: 'charlie' }, false), []);
+        const adminDetails = repository.getClientRequestDetails(projection.itemToken, { id: '9', name: 'admin' }, true);
+        strict_1.default.deepEqual(adminDetails.map(detail => detail.category), ['faces', 'location', 'tags']);
+        repository.close();
+    });
+    (0, node_test_1.it)('withdraws only the owners requests and lets administrators resolve what remains', () => {
+        const repository = createRepository();
+        repository.requestMetadata({
+            relativePath: 'photo.jpg', mediaType: 'photo', categories: ['faces', 'other'],
+            actor: { id: '1', name: 'anna' }
+        });
+        repository.requestMetadata({
+            relativePath: 'photo.jpg', mediaType: 'photo', categories: ['tags'],
+            actor: { id: '2', name: 'bob' }
+        });
+        const withdrawn = repository.withdrawOwnCurationRequests('photo.jpg', { id: '1', name: 'anna' });
+        strict_1.default.deepEqual(withdrawn, { deletionWithdrawn: false, metadataWithdrawn: 2 });
+        strict_1.default.deepEqual(repository.getProjection('photo.jpg')?.metadataCategories, ['tags']);
+        strict_1.default.equal(repository.closeMetadataRequests('photo.jpg', { id: '9', name: 'admin' }, 'RESOLVED', 'fixed XMP'), 1);
+        strict_1.default.equal(repository.getProjection('photo.jpg'), null);
+        strict_1.default.throws(() => repository.closeMetadataRequests('photo.jpg', { id: '9', name: 'admin' }, 'DISMISSED'), /no open metadata/);
+        repository.close();
+    });
+    (0, node_test_1.it)('validates metadata categories and comment length on the server', () => {
+        const repository = createRepository();
+        strict_1.default.throws(() => repository.requestMetadata({
+            relativePath: 'photo.jpg', mediaType: 'photo', categories: [],
+            actor: { id: '1', name: 'anna' }
+        }), /valid metadata correction category/);
+        strict_1.default.throws(() => repository.requestMetadata({
+            relativePath: 'photo.jpg', mediaType: 'photo', categories: ['other'],
+            actor: { id: '1', name: 'anna' }, comment: 'x'.repeat(101)
+        }), /comment exceeds 100/);
+        strict_1.default.equal(repository.getProjection('photo.jpg'), null);
+        repository.close();
+    });
 });
 (0, node_test_1.describe)('security and synthetic metadata', () => {
     (0, node_test_1.it)('rejects absolute and escaping paths', () => {
@@ -185,7 +248,7 @@ const fingerprint = {
         strict_1.default.equal((0, paths_1.normalizeRelativeMediaPath)('./2024\\photo.jpg'), '2024/photo.jpg');
     });
     (0, node_test_1.it)('replaces only internal curation tags', () => {
-        strict_1.default.deepEqual((0, domain_1.applyCurationState)(['family', 'pg-curation:delete-pending'], 'APPROVED'), ['family', 'pg-curation:delete-approved']);
+        strict_1.default.deepEqual((0, domain_1.applyCurationState)(['family', 'pg-curation:delete-pending'], 'APPROVED'), ['family', 'pg-curation:delete-approved', 'pg-curation:open']);
         strict_1.default.deepEqual((0, domain_1.applyCurationState)(['family', 'pg-curation:delete-error'], 'DECLINED'), ['family']);
     });
     (0, node_test_1.it)('calculates a SHA-256 fingerprint from a stable file', async () => {
@@ -196,6 +259,50 @@ const fingerprint = {
         strict_1.default.equal(result.hashAlgorithm, 'sha256');
         strict_1.default.equal(result.fileSize, 20);
         strict_1.default.equal(result.fileHash.length, 64);
+        (0, fs_1.rmSync)(folder, { recursive: true, force: true });
+    });
+});
+(0, node_test_1.describe)('database migrations', () => {
+    (0, node_test_1.it)('upgrades a version-1 deletion database without losing its queue', () => {
+        const folder = (0, fs_1.mkdtempSync)(path.join((0, os_1.tmpdir)(), 'pg2-curation-migration-'));
+        const databasePath = path.join(folder, 'curation.sqlite');
+        const legacy = new better_sqlite3_1.default(databasePath);
+        legacy.exec(`
+      CREATE TABLE curation_schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+      INSERT INTO curation_schema_migrations VALUES (1, '2026-08-10T00:00:00.000Z');
+      CREATE TABLE deletion_items (
+        id INTEGER PRIMARY KEY, relative_path TEXT NOT NULL UNIQUE, media_type TEXT,
+        file_size INTEGER, file_mtime INTEGER, file_hash TEXT, hash_algorithm TEXT,
+        state TEXT NOT NULL, current_cycle INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        approved_by_user_id TEXT, approved_by_user_name TEXT, approved_at TEXT,
+        declined_by_user_id TEXT, declined_by_user_name TEXT, declined_at TEXT,
+        executed_at TEXT, execution_error TEXT
+      );
+      CREATE TABLE deletion_requests (
+        id INTEGER PRIMARY KEY, deletion_item_id INTEGER NOT NULL, cycle INTEGER NOT NULL,
+        requested_by_user_id TEXT NOT NULL, requested_by_user_name TEXT NOT NULL,
+        requested_at TEXT NOT NULL, reason TEXT, withdrawn_at TEXT
+      );
+      CREATE TABLE curation_events (
+        id INTEGER PRIMARY KEY, deletion_item_id INTEGER NOT NULL, cycle INTEGER NOT NULL,
+        event_type TEXT NOT NULL, actor_user_id TEXT, actor_user_name TEXT,
+        created_at TEXT NOT NULL, payload_json TEXT
+      );
+      INSERT INTO deletion_items(
+        relative_path, media_type, state, current_cycle, created_at, updated_at
+      ) VALUES ('legacy.jpg', 'photo', 'PENDING', 1, 'now', 'now');
+      INSERT INTO deletion_requests(
+        deletion_item_id, cycle, requested_by_user_id, requested_by_user_name, requested_at
+      ) VALUES (1, 1, '1', 'anna', 'now');
+    `);
+        legacy.close();
+        const repository = new repository_1.CurationRepository(new database_1.CurationDatabase(databasePath));
+        const projection = repository.getProjection('legacy.jpg');
+        strict_1.default.equal(projection?.state, 'PENDING');
+        strict_1.default.deepEqual(projection?.requesterNames, ['anna']);
+        strict_1.default.match(projection?.itemToken || '', /^[a-f0-9]{32}$/);
+        repository.close();
         (0, fs_1.rmSync)(folder, { recursive: true, force: true });
     });
 });

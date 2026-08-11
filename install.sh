@@ -73,20 +73,20 @@ INSTALL_ROOT="${PG2_INSTALL_ROOT:-}"
 CONTAINER="${PG2_CONTAINER:-}"
 COMPOSE_DIR="${PG2_COMPOSE_DIR:-${INSTALL_ROOT}}"
 COMPOSE_SERVICE="${PG2_COMPOSE_SERVICE:-${CONTAINER}}"
-EXTENSION_DIR="${PG2_EXTENSION_DIR:-${INSTALL_ROOT}/config/extensions/request-deletions}"
+EXTENSION_DIR="${PG2_EXTENSION_DIR:-${INSTALL_ROOT}/config/extensions/curation-requests}"
 CLI_DIR="${PG2_CLI_DIR:-${INSTALL_ROOT}/curation/cli}"
 CUSTOM_ASSETS_DIR="${PG2_CUSTOM_ASSETS_DIR:-${INSTALL_ROOT}/custom_assets}"
 CONFIG_FILE="${PG2_CONFIG_FILE:-${INSTALL_ROOT}/config/config.json}"
 
-CONTAINER_EXTENSION_DIR="${PG2_CONTAINER_EXTENSION_DIR:-/app/data/config/extensions/request-deletions}"
+CONTAINER_EXTENSION_DIR="${PG2_CONTAINER_EXTENSION_DIR:-/app/data/config/extensions/curation-requests}"
 CONTAINER_CURATION_DIR="${PG2_CONTAINER_CURATION_DIR:-/app/data/curation}"
 CONTAINER_IMAGE_DIR="${PG2_CONTAINER_IMAGE_DIR:-/app/data/images}"
 CONTAINER_ASSET_PATH="${PG2_CONTAINER_ASSET_PATH:-/app/dist/en/custom-scripts.js}"
 
-EXTENSION_FOLDER="${PG2_EXTENSION_FOLDER:-request-deletions}"
+EXTENSION_FOLDER="${PG2_EXTENSION_FOLDER:-curation-requests}"
 EXTENSION_DATABASE_PATH="${PG2_EXTENSION_DATABASE_PATH:-/app/data/curation/curation.sqlite}"
 EXTENSION_REQUESTER_ALLOWLIST="${PG2_EXTENSION_REQUESTER_ALLOWLIST:-*}"
-EXTENSION_REASON_MAX_LENGTH="${PG2_EXTENSION_REASON_MAX_LENGTH:-4000}"
+EXTENSION_COMMENT_MAX_LENGTH="${PG2_EXTENSION_COMMENT_MAX_LENGTH:-${PG2_EXTENSION_REASON_MAX_LENGTH:-4000}}"
 
 CURATION_DB="${PG2_CURATION_DB:-}"
 PHOTO_ROOT="${PG2_PHOTO_ROOT:-}"
@@ -124,7 +124,7 @@ done
 [[ "${CONTAINER}" =~ ^[A-Za-z0-9_.-]+$ ]] || fail "Unsafe container name: ${CONTAINER}"
 [[ "${COMPOSE_SERVICE}" =~ ^[A-Za-z0-9_.-]+$ ]] || fail "Unsafe Compose service name: ${COMPOSE_SERVICE}"
 [[ "${EXTENSION_FOLDER}" =~ ^[A-Za-z0-9_.-]+$ ]] || fail "Unsafe extension folder: ${EXTENSION_FOLDER}"
-[[ "${EXTENSION_REASON_MAX_LENGTH}" =~ ^[1-9][0-9]*$ ]] || fail "PG2_EXTENSION_REASON_MAX_LENGTH must be positive"
+[[ "${EXTENSION_COMMENT_MAX_LENGTH}" =~ ^[1-9][0-9]*$ ]] || fail "PG2_EXTENSION_COMMENT_MAX_LENGTH must be positive"
 [[ "${SIDECAR_STYLE}" == "none" || "${SIDECAR_STYLE}" == "appended" || "${SIDECAR_STYLE}" == "stem" ]] || \
   fail "PG2_SIDECAR_STYLE must be none, appended, or stem"
 for boolean_value in "${INSTALL_GIT_PULL}" "${INSTALL_DEPENDENCIES}" "${RECREATE_CONTAINER}"; do
@@ -283,7 +283,7 @@ python3 "${SCRIPT_DIR}/scripts/set_custom_html_head.py" \
   --extension-folder "${EXTENSION_FOLDER}" \
   --database-path "${EXTENSION_DATABASE_PATH}" \
   --requester-allowlist "${EXTENSION_REQUESTER_ALLOWLIST}" \
-  --reason-max-length "${EXTENSION_REASON_MAX_LENGTH}"
+  --comment-max-length "${EXTENSION_COMMENT_MAX_LENGTH}"
 
 if [[ "${INSTALL_DEPENDENCIES}" == "true" ]]; then
   echo "Installing locked production dependencies with the PiGallery2 image..."

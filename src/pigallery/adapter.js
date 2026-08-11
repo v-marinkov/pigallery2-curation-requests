@@ -83,6 +83,14 @@ const saveCurationProjection = async (media, repository, projection) => {
 exports.saveCurationProjection = saveCurationProjection;
 const ensureSavedSearches = async (extension) => {
     const searches = [
+        { name: '✎ Curation · All open', keyword: 'pg-curation:open' },
+        { name: '✎ Curation · Faces', keyword: 'pg-curation:category:faces' },
+        { name: '✎ Curation · Tags', keyword: 'pg-curation:category:tags' },
+        { name: '✎ Curation · Location', keyword: 'pg-curation:category:location' },
+        { name: '✎ Curation · Date and time', keyword: 'pg-curation:category:date-time' },
+        { name: '✎ Curation · Title and caption', keyword: 'pg-curation:category:title-caption' },
+        { name: '✎ Curation · Duplicates', keyword: 'pg-curation:category:duplicate' },
+        { name: '✎ Curation · Other', keyword: 'pg-curation:category:other' },
         { name: '🗑 Deletion requests', keyword: 'pg-curation:delete-pending' },
         { name: '✓ Approved for deletion', keyword: 'pg-curation:delete-approved' },
         { name: '⚠ Deletion errors', keyword: 'pg-curation:delete-error' }

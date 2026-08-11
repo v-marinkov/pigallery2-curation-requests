@@ -52,6 +52,29 @@ CREATE TABLE curation_events (
   created_at TEXT NOT NULL,
   payload_json TEXT
 );
+CREATE TABLE curation_media (
+  id INTEGER PRIMARY KEY,
+  relative_path TEXT NOT NULL UNIQUE,
+  media_type TEXT,
+  public_token TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE TABLE metadata_requests (
+  id INTEGER PRIMARY KEY,
+  curation_media_id INTEGER NOT NULL,
+  category TEXT NOT NULL,
+  state TEXT NOT NULL,
+  requested_by_user_id TEXT NOT NULL,
+  requested_by_user_name TEXT NOT NULL,
+  requested_at TEXT NOT NULL,
+  comment TEXT,
+  updated_at TEXT NOT NULL,
+  closed_by_user_id TEXT,
+  closed_by_user_name TEXT,
+  closed_at TEXT,
+  resolution_comment TEXT
+);
 """
 
 
@@ -146,6 +169,35 @@ class DeletionCliTests(unittest.TestCase):
         self.assertIn("approved.jpg", report)
         self.assertIn("pending.jpg", report)
         self.assertNotIn("declined.jpg", report)
+
+    def test_review_active_view_also_reports_open_metadata_requests(self) -> None:
+        with database_connection(self.database) as connection:
+            media = connection.execute(
+                """
+                INSERT INTO curation_media(
+                  relative_path, media_type, public_token, created_at, updated_at
+                ) VALUES ('2024/metadata.jpg', 'photo', ?, 'now', 'now')
+                """,
+                ("a" * 32,),
+            )
+            connection.execute(
+                """
+                INSERT INTO metadata_requests(
+                  curation_media_id, category, state,
+                  requested_by_user_id, requested_by_user_name,
+                  requested_at, comment, updated_at
+                ) VALUES (?, 'faces', 'OPEN', '1', 'anna', 'now', 'Missing Alice', 'now')
+                """,
+                (media.lastrowid,),
+            )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(review_cli.run(self.database, "ACTIVE"), 0)
+        report = output.getvalue()
+        self.assertIn("METADATA REQUESTS: ACTIVE", report)
+        self.assertIn("2024/metadata.jpg", report)
+        self.assertIn("faces", report)
+        self.assertIn("Missing Alice", report)
 
     def test_execute_deletes_matching_photo_and_selected_sidecar(self) -> None:
         photo = self.add_approved("2024/photo.jpg", b"photo")

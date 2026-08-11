@@ -135,8 +135,14 @@ def build_parser() -> argparse.ArgumentParser:
     source.add_argument("--cache-tag", help="precalculated 12-character lowercase SHA-256 prefix")
     parser.add_argument("--extension-folder", help="PiGallery2 extension folder/config key")
     parser.add_argument("--database-path", help="curation database path as seen inside PiGallery2")
-    parser.add_argument("--requester-allowlist", help="deletion request access setting")
-    parser.add_argument("--reason-max-length", type=int, help="maximum optional reason length")
+    parser.add_argument("--requester-allowlist", help="curation request access setting")
+    parser.add_argument(
+        "--comment-max-length",
+        "--reason-max-length",
+        dest="reason_max_length",
+        type=int,
+        help="maximum optional comment length",
+    )
     return parser
 
 
@@ -164,7 +170,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("ERROR: all four extension-setting arguments must be supplied together")
         return 2
     if arguments.reason_max_length is not None and arguments.reason_max_length < 1:
-        print("ERROR: --reason-max-length must be positive")
+        print("ERROR: --comment-max-length must be positive")
         return 2
 
     try:

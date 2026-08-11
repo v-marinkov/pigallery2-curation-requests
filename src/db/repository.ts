@@ -1,19 +1,23 @@
 import Database from 'better-sqlite3';
 import {
   Actor,
+  ClientRequestDetail,
   CurationProjection,
   CurationItemInfo,
   DeletionItem,
   DeletionRequest,
   DeletionState,
   FileFingerprint,
+  METADATA_CATEGORIES,
+  MetadataCategory,
+  MetadataRequest,
   RequestDeletionResult,
   WithdrawDeletionRequestResult
 } from '../domain';
 import {normalizeRelativeMediaPath} from '../security/paths';
 import {CurationDatabase} from './database';
 
-export const CURATION_REPOSITORY_API_VERSION = 3;
+export const CURATION_REPOSITORY_API_VERSION = 4;
 
 type ItemRow = {
   id: number;
@@ -72,6 +76,24 @@ const REQUEST_SELECT = `
     FROM deletion_requests
 `;
 
+const METADATA_REQUEST_SELECT = `
+  SELECT mr.id,
+         cm.relative_path AS relativePath,
+         mr.category,
+         mr.state,
+         mr.requested_by_user_id AS requestedByUserId,
+         mr.requested_by_user_name AS requestedByUserName,
+         mr.requested_at AS requestedAt,
+         mr.comment,
+         mr.updated_at AS updatedAt,
+         mr.closed_by_user_id AS closedByUserId,
+         mr.closed_by_user_name AS closedByUserName,
+         mr.closed_at AS closedAt,
+         mr.resolution_comment AS resolutionComment
+    FROM metadata_requests mr
+    JOIN curation_media cm ON cm.id = mr.curation_media_id
+`;
+
 export class CurationRepository {
   private readonly db: Database.Database;
 
@@ -97,15 +119,30 @@ export class CurationRepository {
   }
 
   getProjection(relativePath: string): CurationProjection | null {
+    const normalizedPath = normalizeRelativeMediaPath(relativePath);
     const info = this.getInfo(relativePath);
-    if (!info) {
+    const activeDeletion = info && ['PENDING', 'APPROVED', 'ERROR'].includes(info.item.state)
+      ? info
+      : null;
+    const metadataRequests = this.db.prepare(
+      `${METADATA_REQUEST_SELECT} WHERE cm.relative_path = ? AND mr.state = 'OPEN' ORDER BY mr.id`
+    ).all(normalizedPath) as MetadataRequest[];
+    if (!activeDeletion && metadataRequests.length === 0) {
       return null;
     }
+    const media = this.db.prepare(
+      'SELECT public_token AS publicToken FROM curation_media WHERE relative_path = ?'
+    ).get(normalizedPath) as {publicToken: string} | undefined;
     return {
-      state: info.item.state,
-      requesterNames: info.requests
-        .filter(request => request.cycle === info.item.currentCycle && request.withdrawnAt === null)
-        .map(request => request.requestedByUserName)
+      state: activeDeletion?.item.state || null,
+      requesterNames: [...new Set([
+        ...(activeDeletion?.requests || [])
+          .filter(request => request.cycle === activeDeletion?.item.currentCycle && request.withdrawnAt === null)
+          .map(request => request.requestedByUserName),
+        ...metadataRequests.map(request => request.requestedByUserName)
+      ])],
+      metadataCategories: metadataRequests.map(request => request.category),
+      itemToken: media?.publicToken || null
     };
   }
 
@@ -131,6 +168,7 @@ export class CurationRepository {
     const reason = this.normalizeReason(input.reason);
     return this.db.transaction((): RequestDeletionResult => {
       const timestamp = this.now();
+      this.ensureMedia(relativePath, input.mediaType, timestamp);
       let item = this.getItem(relativePath);
       let status: RequestDeletionResult['status'] = 'requested';
 
@@ -241,6 +279,170 @@ export class CurationRepository {
     })();
   }
 
+  requestMetadata(input: {
+    relativePath: string;
+    mediaType: string;
+    categories: MetadataCategory[];
+    actor: Actor;
+    comment?: string | null;
+  }): {created: MetadataCategory[]; existing: MetadataCategory[]} {
+    const relativePath = normalizeRelativeMediaPath(input.relativePath);
+    const categories = [...new Set(input.categories)];
+    if (categories.length === 0 || categories.some(category => !METADATA_CATEGORIES.includes(category))) {
+      throw new Error('At least one valid metadata correction category is required');
+    }
+    const comment = this.normalizeComment(input.comment);
+    return this.db.transaction(() => {
+      const timestamp = this.now();
+      const mediaId = this.ensureMedia(relativePath, input.mediaType, timestamp);
+      const created: MetadataCategory[] = [];
+      const existing: MetadataCategory[] = [];
+      for (const category of categories) {
+        const active = this.db.prepare(`
+          SELECT id FROM metadata_requests
+           WHERE curation_media_id = ? AND category = ?
+             AND requested_by_user_id = ? AND state = 'OPEN'
+        `).get(mediaId, category, input.actor.id) as {id: number} | undefined;
+        if (active) {
+          existing.push(category);
+          continue;
+        }
+        const inserted = this.db.prepare(`
+          INSERT INTO metadata_requests(
+            curation_media_id, category, state,
+            requested_by_user_id, requested_by_user_name, requested_at,
+            comment, updated_at
+          ) VALUES (?, ?, 'OPEN', ?, ?, ?, ?, ?)
+        `).run(
+          mediaId, category, input.actor.id, input.actor.name,
+          timestamp, comment, timestamp
+        );
+        const requestId = Number(inserted.lastInsertRowid);
+        this.addMetadataEvent(requestId, 'REQUESTED', input.actor, timestamp, {category, comment});
+        created.push(category);
+      }
+      return {created, existing};
+    })();
+  }
+
+  withdrawOwnCurationRequests(
+    relativePathInput: string,
+    actor: Actor
+  ): {deletionWithdrawn: boolean; metadataWithdrawn: number} {
+    const relativePath = normalizeRelativeMediaPath(relativePathInput);
+    return this.db.transaction(() => {
+      const deletion = this.withdrawOwnDeletionRequest(relativePath, actor);
+      const requests = this.db.prepare(`
+        SELECT mr.id
+          FROM metadata_requests mr
+          JOIN curation_media cm ON cm.id = mr.curation_media_id
+         WHERE cm.relative_path = ? AND mr.requested_by_user_id = ? AND mr.state = 'OPEN'
+      `).all(relativePath, actor.id) as Array<{id: number}>;
+      const timestamp = this.now();
+      for (const request of requests) {
+        this.db.prepare(`
+          UPDATE metadata_requests
+             SET state = 'WITHDRAWN', updated_at = ?,
+                 closed_by_user_id = ?, closed_by_user_name = ?, closed_at = ?
+           WHERE id = ? AND state = 'OPEN'
+        `).run(timestamp, actor.id, actor.name, timestamp, request.id);
+        this.addMetadataEvent(request.id, 'WITHDRAWN', actor, timestamp);
+      }
+      return {
+        deletionWithdrawn: deletion.status === 'withdrawn',
+        metadataWithdrawn: requests.length
+      };
+    })();
+  }
+
+  closeMetadataRequests(
+    relativePathInput: string,
+    actor: Actor,
+    outcome: 'RESOLVED' | 'DISMISSED',
+    resolutionComment?: string | null
+  ): number {
+    const relativePath = normalizeRelativeMediaPath(relativePathInput);
+    const comment = this.normalizeComment(resolutionComment);
+    return this.db.transaction(() => {
+      const requests = this.db.prepare(`
+        SELECT mr.id
+          FROM metadata_requests mr
+          JOIN curation_media cm ON cm.id = mr.curation_media_id
+         WHERE cm.relative_path = ? AND mr.state = 'OPEN'
+      `).all(relativePath) as Array<{id: number}>;
+      if (requests.length === 0) {
+        throw new Error('This photo has no open metadata correction requests');
+      }
+      const timestamp = this.now();
+      for (const request of requests) {
+        this.db.prepare(`
+          UPDATE metadata_requests
+             SET state = ?, updated_at = ?,
+                 closed_by_user_id = ?, closed_by_user_name = ?, closed_at = ?,
+                 resolution_comment = ?
+           WHERE id = ? AND state = 'OPEN'
+        `).run(outcome, timestamp, actor.id, actor.name, timestamp, comment, request.id);
+        this.addMetadataEvent(request.id, outcome, actor, timestamp, {comment});
+      }
+      return requests.length;
+    })();
+  }
+
+  getClientRequestDetails(
+    itemToken: string,
+    actor: Actor,
+    administrator: boolean
+  ): ClientRequestDetail[] {
+    if (!/^[a-f0-9]{32}$/.test(itemToken)) {
+      return [];
+    }
+    const media = this.db.prepare(
+      'SELECT relative_path AS relativePath FROM curation_media WHERE public_token = ?'
+    ).get(itemToken) as {relativePath: string} | undefined;
+    if (!media) {
+      return [];
+    }
+    const details: ClientRequestDetail[] = [];
+    const deletionInfo = this.getInfo(media.relativePath);
+    if (deletionInfo && ['PENDING', 'APPROVED', 'ERROR'].includes(deletionInfo.item.state)) {
+      for (const request of deletionInfo.requests) {
+        if (
+          request.cycle !== deletionInfo.item.currentCycle || request.withdrawnAt !== null ||
+          (!administrator && request.requestedByUserId !== actor.id)
+        ) {
+          continue;
+        }
+        details.push({
+          kind: 'deletion',
+          category: 'deletion',
+          state: deletionInfo.item.state,
+          requesterName: request.requestedByUserName,
+          requestedAt: request.requestedAt,
+          comment: request.reason,
+          ownRequest: request.requestedByUserId === actor.id
+        });
+      }
+    }
+    const metadata = this.db.prepare(
+      `${METADATA_REQUEST_SELECT} WHERE cm.relative_path = ? AND mr.state = 'OPEN' ORDER BY mr.requested_at, mr.id`
+    ).all(media.relativePath) as MetadataRequest[];
+    for (const request of metadata) {
+      if (!administrator && request.requestedByUserId !== actor.id) {
+        continue;
+      }
+      details.push({
+        kind: 'metadata',
+        category: request.category,
+        state: request.state,
+        requesterName: request.requestedByUserName,
+        requestedAt: request.requestedAt,
+        comment: request.comment,
+        ownRequest: request.requestedByUserId === actor.id
+      });
+    }
+    return details;
+  }
+
   approve(relativePathInput: string, actor: Actor, fingerprint: FileFingerprint): DeletionItem {
     const relativePath = normalizeRelativeMediaPath(relativePathInput);
     return this.db.transaction(() => {
@@ -291,14 +493,35 @@ export class CurationRepository {
   }
 
   private normalizeReason(reason: string | null | undefined): string | null {
-    if (reason == null) {
+    return this.normalizeComment(reason);
+  }
+
+  private normalizeComment(comment: string | null | undefined): string | null {
+    if (comment == null) {
       return null;
     }
-    const normalized = String(reason).trim();
+    const normalized = String(comment).trim();
     if (normalized.length > this.reasonMaxLength) {
-      throw new Error(`Deletion reason exceeds ${this.reasonMaxLength} characters`);
+      throw new Error(`Curation comment exceeds ${this.reasonMaxLength} characters`);
     }
     return normalized || null;
+  }
+
+  private ensureMedia(relativePath: string, mediaType: string, timestamp: string): number {
+    this.db.prepare(`
+      INSERT INTO curation_media(relative_path, media_type, created_at, updated_at)
+      VALUES (?, ?, ?, ?)
+      ON CONFLICT(relative_path) DO UPDATE SET
+        media_type = excluded.media_type,
+        updated_at = excluded.updated_at
+    `).run(relativePath, mediaType, timestamp, timestamp);
+    const media = this.db.prepare(
+      'SELECT id FROM curation_media WHERE relative_path = ?'
+    ).get(relativePath) as {id: number} | undefined;
+    if (!media) {
+      throw new Error(`Curation media record was not created for ${relativePath}`);
+    }
+    return media.id;
   }
 
   private activeRequesterCount(itemId: number, cycle: number): number {
@@ -340,6 +563,23 @@ export class CurationRepository {
       ) VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(
       itemId, cycle, eventType, actor?.id || null, actor?.name || null, timestamp,
+      payload === undefined ? null : JSON.stringify(payload)
+    );
+  }
+
+  private addMetadataEvent(
+    requestId: number,
+    eventType: string,
+    actor: Actor | null,
+    timestamp: string,
+    payload?: unknown
+  ): void {
+    this.db.prepare(`
+      INSERT INTO metadata_request_events(
+        metadata_request_id, event_type, actor_user_id, actor_user_name, created_at, payload_json
+      ) VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      requestId, eventType, actor?.id || null, actor?.name || null, timestamp,
       payload === undefined ? null : JSON.stringify(payload)
     );
   }

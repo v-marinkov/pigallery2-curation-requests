@@ -6,6 +6,8 @@ Do not publish an exploitable deletion, path-validation, authorization, or SQL i
 
 ## Security boundary
 
-PiGallery2 and this extension are designed to keep the photo library mounted read-only. The separate host-side deletion command is the only component that should receive write access to the library. The browser JavaScript is presentation logic and is never an authorization boundary.
+PiGallery2 and this extension are designed to keep the photo library mounted read-only. The separate host-side deletion command is the only component that should receive write access to the library. The browser JavaScript, including Curation mode, is presentation logic and is never an authorization boundary.
+
+Request creation, requester cancellation, moderation, and comment visibility are authorized against the authenticated PiGallery2 user on the server. Opaque item tokens and projected keywords are identifiers, not credentials.
 
 Before executing approved deletions, keep a current backup and run the CLI in dry-run mode. A deployment that gives the PiGallery2 container write access to the library is outside this project's intended security model.

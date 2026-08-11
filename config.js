@@ -31,15 +31,15 @@ __decorate([
 ], CurationConfig.prototype, "databasePath", void 0);
 __decorate([
     (0, ConfigPropoerty_1.ConfigProperty)({
-        tags: { name: 'Maximum reason length' },
-        description: 'Maximum number of characters accepted for an optional deletion reason.'
+        tags: { name: 'Maximum comment length' },
+        description: 'Maximum number of characters accepted for an optional curation request or resolution comment.'
     }),
     __metadata("design:type", Number)
 ], CurationConfig.prototype, "reasonMaxLength", void 0);
 __decorate([
     (0, ConfigPropoerty_1.ConfigProperty)({
-        tags: { name: 'Deletion request access' },
-        description: 'Comma-separated access list. Use * for every authenticated user, admin for all administrators, or individual PiGallery2 usernames; for example: admin, family-user. Tokens are case-insensitive. Use user:admin for a non-administrator whose username is admin. Approval and decline remain administrator-only.'
+        tags: { name: 'Curation request access' },
+        description: 'Comma-separated access list. Use * for every authenticated user, admin for all administrators, or individual PiGallery2 usernames; for example: admin, family-user. Tokens are case-insensitive. Use user:admin for a non-administrator whose username is admin. Moderation remains administrator-only.'
     }),
     __metadata("design:type", String)
 ], CurationConfig.prototype, "requesterAllowlist", void 0);

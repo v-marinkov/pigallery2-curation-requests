@@ -23,7 +23,7 @@ class CustomHtmlHeadTests(unittest.TestCase):
             cache_tag = set_custom_html_head.asset_cache_tag(asset_path)
             self.assertEqual(len(cache_tag), 12)
             settings = (
-                "request-deletions",
+                "curation-requests",
                 "/app/data/curation/curation.sqlite",
                 "admin, family-user",
                 2000,
@@ -36,10 +36,10 @@ class CustomHtmlHeadTests(unittest.TestCase):
             self.assertEqual(updated["Database"], {"type": "sqlite"})
             self.assertIn(f"custom-scripts.js?v={cache_tag}", updated["Server"]["customHTMLHead"])
             self.assertEqual(
-                updated["Extensions"]["extensions"]["request-deletions"],
+                updated["Extensions"]["extensions"]["curation-requests"],
                 {
                     "enabled": True,
-                    "path": "request-deletions",
+                    "path": "curation-requests",
                     "configs": {
                         "databasePath": "/app/data/curation/curation.sqlite",
                         "reasonMaxLength": 2000,

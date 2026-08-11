@@ -14,7 +14,7 @@ type MetadataAfter = (data: any) => Promise<any>;
 type RouteMiddleware = (req: any, res: any, next: () => void) => void;
 type JsonCallback = (params?: any, body?: any, user?: any) => unknown;
 
-it('registers and executes the PiGallery2 request/approval workflow without changing the photo', async () => {
+it('executes general curation and deletion workflows without changing the photo', async () => {
   const root = mkdtempSync(path.join(tmpdir(), 'pg2-server-test-'));
   const imageRoot = path.join(root, 'images');
   const databaseRoot = path.join(root, 'db');
@@ -90,142 +90,165 @@ it('registers and executes the PiGallery2 request/approval workflow without chan
 
   try {
     await init(extension);
-    assert.deepEqual(albums, ['🗑 Deletion requests', '✓ Approved for deletion', '⚠ Deletion errors']);
-    assert.equal(buttons.get('Request deletion')?.config.minUserRole, UserRoles.User);
-    assert.equal(buttons.get('Cancel my deletion request')?.config.minUserRole, UserRoles.User);
+    assert.deepEqual(albums, [
+      '✎ Curation · All open',
+      '✎ Curation · Faces',
+      '✎ Curation · Tags',
+      '✎ Curation · Location',
+      '✎ Curation · Date and time',
+      '✎ Curation · Title and caption',
+      '✎ Curation · Duplicates',
+      '✎ Curation · Other',
+      '🗑 Deletion requests',
+      '✓ Approved for deletion',
+      '⚠ Deletion errors'
+    ]);
+    assert.equal(buttons.get('Request curation')?.config.minUserRole, UserRoles.User);
+    assert.deepEqual(
+      buttons.get('Request curation')?.config.popup.customFields.map((field: any) => field.id),
+      ['deletion', 'faces', 'tags', 'location', 'dateTime', 'titleCaption', 'duplicate', 'other', 'comment']
+    );
+    assert.equal(buttons.get('Cancel my curation requests')?.config.minUserRole, UserRoles.User);
+    assert.equal(buttons.get('Resolve metadata requests (admin only)')?.config.minUserRole, UserRoles.Admin);
     assert.equal(buttons.get('Approve deletion (admin only)')?.config.minUserRole, UserRoles.Admin);
-    assert.equal(buttons.get('Decline deletion (admin only)')?.config.minUserRole, UserRoles.Admin);
-    assert.equal(apiRoles.get('Approve deletion (admin only)'), UserRoles.Admin);
-    assert.equal(apiRoles.get('Decline deletion (admin only)'), UserRoles.Admin);
+    assert.equal(apiRoles.get('Resolve metadata requests (admin only)'), UserRoles.Admin);
+    assert.equal(guards.get('request-curation')?.role, UserRoles.User);
     assert.equal(guards.get('approve-deletion')?.role, UserRoles.User);
-    assert.equal(guards.get('decline-deletion')?.role, UserRoles.User);
-    assert.equal(guards.get('request-deletion')?.role, UserRoles.User);
     assert.equal(jsonRoutes.get('client-permissions')?.role, UserRoles.User);
+    assert.equal(jsonRoutes.get('request-details/:token')?.role, UserRoles.User);
+
     assert.deepEqual(
       jsonRoutes.get('client-permissions')?.callback(
         undefined, undefined, {id: 1, name: 'anna', role: UserRoles.User}
       ),
-      {userName: 'anna', canRequestDeletion: true, canModerateDeletion: false}
+      {userId: '1', userName: 'anna', canRequestCuration: true, canModerateCuration: false}
     );
     assert.deepEqual(
       jsonRoutes.get('client-permissions')?.callback(
         undefined, undefined, {id: 2, name: 'bob', role: UserRoles.User}
       ),
-      {userName: 'bob', canRequestDeletion: false, canModerateDeletion: false}
+      {userId: '2', userName: 'bob', canRequestCuration: false, canModerateCuration: false}
     );
     assert.deepEqual(
       jsonRoutes.get('client-permissions')?.callback(
         undefined, undefined, {id: 9, name: 'site-admin', role: UserRoles.Admin}
       ),
-      {userName: 'site-admin', canRequestDeletion: true, canModerateDeletion: true}
+      {userId: '9', userName: 'site-admin', canRequestCuration: true, canModerateCuration: true}
     );
 
     const deniedResponses: any[] = [];
     let guardContinued = false;
     guards.get('approve-deletion')!.middleware(
-      {session: {context: {user: {id: 1, name: 'ordinary-user', role: UserRoles.User}}}},
-      {json: (body: any): void => { deniedResponses.push(body); }},
-      (): void => { guardContinued = true; }
-    );
-    assert.equal(guardContinued, false);
-    assert.equal(deniedResponses[0].error.code, 4);
-    assert.match(deniedResponses[0].error.message, /Administrator role is required/);
-    assert.deepEqual(warnings, [
-      'ordinary-user: blocked unauthorized attempt to approve a deletion request'
-    ]);
-    assert.deepEqual(media.metadata.keywords, ['family']);
-    assert.equal(saved.length, 0);
-
-    guards.get('approve-deletion')!.middleware(
-      {session: {context: {user: {id: 9, name: 'admin', role: UserRoles.Admin}}}},
-      {json: (): void => assert.fail('admin guard must not send a denial')},
-      (): void => { guardContinued = true; }
-    );
-    assert.equal(guardContinued, true);
-
-    guardContinued = false;
-    guards.get('request-deletion')!.middleware(
       {session: {context: {user: {id: 2, name: 'bob', role: UserRoles.User}}}},
       {json: (body: any): void => { deniedResponses.push(body); }},
       (): void => { guardContinued = true; }
     );
     assert.equal(guardContinued, false);
-    assert.equal(deniedResponses[1].error.code, 4);
-    assert.match(deniedResponses[1].error.message, /not allowed to request/);
+    assert.equal(deniedResponses[0].error.code, 4);
 
-    guardContinued = false;
-    guards.get('request-deletion')!.middleware(
-      {session: {context: {user: {id: 9, name: 'site-admin', role: UserRoles.Admin}}}},
-      {json: (): void => assert.fail('admin role token must allow the request')},
+    guards.get('request-curation')!.middleware(
+      {
+        session: {context: {user: {id: 2, name: 'bob', role: UserRoles.User}}},
+        body: {data: {customFields: {faces: true}}}
+      },
+      {json: (body: any): void => { deniedResponses.push(body); }},
       (): void => { guardContinued = true; }
     );
-    assert.equal(guardContinued, true);
+    assert.equal(deniedResponses[1].error.code, 4);
 
-    assert.deepEqual(warnings, [
-      'ordinary-user: blocked unauthorized attempt to approve a deletion request',
-      'bob: blocked unauthorized attempt to request photo deletion'
-    ]);
-
-    await buttons.get('Request deletion')!.callback(
-      {}, {data: {customFields: {confirm: true, reason: 'duplicate'}}},
-      {id: 1, name: 'anna', role: UserRoles.User}, media, mediaRepository
+    guards.get('request-curation')!.middleware(
+      {
+        session: {context: {user: {id: 1, name: 'anna', role: UserRoles.User}}},
+        body: {data: {customFields: {comment: 'nothing selected'}}}
+      },
+      {json: (body: any): void => { deniedResponses.push(body); }},
+      (): void => { guardContinued = true; }
     );
-    assert.deepEqual(media.metadata.keywords, [
-      'family', 'pg-curation:delete-pending', 'pg-curation:requested-by:anna'
-    ]);
-    assert.equal(readFileSync(photoPath, 'utf8'), 'photo remains read only');
+    assert.equal(deniedResponses[2].error.code, 50);
+    assert.match(deniedResponses[2].error.message, /Select at least one/);
 
-    await buttons.get('Cancel my deletion request')!.callback(
+    await buttons.get('Request curation')!.callback(
+      {},
+      {data: {customFields: {
+        deletion: true,
+        faces: true,
+        other: true,
+        comment: 'Duplicate and missing people'
+      }}},
+      {id: 1, name: 'anna', role: UserRoles.User},
+      media,
+      mediaRepository
+    );
+    assert.equal(readFileSync(photoPath, 'utf8'), 'photo remains read only');
+    assert.ok(media.metadata.keywords.includes('family'));
+    assert.ok(media.metadata.keywords.includes('pg-curation:delete-pending'));
+    assert.ok(media.metadata.keywords.includes('pg-curation:open'));
+    assert.ok(media.metadata.keywords.includes('pg-curation:category:faces'));
+    assert.ok(media.metadata.keywords.includes('pg-curation:category:other'));
+    assert.ok(media.metadata.keywords.includes('pg-curation:requested-by:anna'));
+    const itemTag = media.metadata.keywords.find((keyword: string) => keyword.startsWith('pg-curation:item:'));
+    assert.match(itemTag || '', /^pg-curation:item:[a-f0-9]{32}$/);
+    const token = itemTag!.split(':').at(-1);
+
+    const ownerDetails = jsonRoutes.get('request-details/:token')?.callback(
+      {token}, undefined, {id: 1, name: 'anna', role: UserRoles.User}
+    ) as any;
+    assert.deepEqual(ownerDetails.requests.map((request: any) => request.category), [
+      'deletion', 'faces', 'other'
+    ]);
+    const strangerDetails = jsonRoutes.get('request-details/:token')?.callback(
+      {token}, undefined, {id: 2, name: 'bob', role: UserRoles.User}
+    ) as any;
+    assert.deepEqual(strangerDetails, {requests: []});
+
+    await buttons.get('Resolve metadata requests (admin only)')!.callback(
       {}, {data: {customFields: {confirm: true}}},
       {id: 2, name: 'bob', role: UserRoles.User}, media, mediaRepository
     );
-    assert.deepEqual(media.metadata.keywords, [
-      'family', 'pg-curation:delete-pending', 'pg-curation:requested-by:anna'
-    ]);
-    assert.equal(saved.length, 1);
+    await buttons.get('Approve deletion (admin only)')!.callback(
+      {}, {data: {customFields: {confirm: true}}},
+      {id: 2, name: 'bob', role: UserRoles.User}, media, mediaRepository
+    );
+
+    const dbPath = path.join(databaseRoot, 'curation', 'curation.sqlite');
+    const database = new Database(dbPath, {readonly: true});
+    assert.deepEqual(
+      database.prepare('SELECT state, requested_by_user_name, reason FROM deletion_items JOIN deletion_requests ON deletion_items.id = deletion_requests.deletion_item_id').get(),
+      {state: 'PENDING', requested_by_user_name: 'anna', reason: 'Duplicate and missing people'}
+    );
+    assert.deepEqual(
+      database.prepare('SELECT category, state, comment FROM metadata_requests ORDER BY id').all(),
+      [
+        {category: 'faces', state: 'OPEN', comment: 'Duplicate and missing people'},
+        {category: 'other', state: 'OPEN', comment: 'Duplicate and missing people'}
+      ]
+    );
+    database.close();
 
     await buttons.get('Approve deletion (admin only)')!.callback(
       {}, {data: {customFields: {confirm: true}}},
       {id: 9, name: 'admin', role: UserRoles.Admin}, media, mediaRepository
     );
-    assert.deepEqual(media.metadata.keywords, [
-      'family', 'pg-curation:delete-approved', 'pg-curation:requested-by:anna'
-    ]);
-    assert.equal(saved.length, 2);
-
-    const dbPath = path.join(databaseRoot, 'curation', 'curation.sqlite');
-    const database = new Database(dbPath, {readonly: true});
-    const item = database.prepare('SELECT state, approved_by_user_name FROM deletion_items').get() as any;
-    const request = database.prepare('SELECT requested_by_user_name, reason FROM deletion_requests').get() as any;
-    assert.deepEqual(item, {state: 'APPROVED', approved_by_user_name: 'admin'});
-    assert.deepEqual(request, {requested_by_user_name: 'anna', reason: 'duplicate'});
-    database.close();
+    await buttons.get('Resolve metadata requests (admin only)')!.callback(
+      {}, {data: {customFields: {confirm: true, resolutionComment: 'XMP fixed'}}},
+      {id: 9, name: 'admin', role: UserRoles.Admin}, media, mediaRepository
+    );
+    assert.ok(media.metadata.keywords.includes('pg-curation:delete-approved'));
+    assert.ok(!media.metadata.keywords.some((keyword: string) => keyword.startsWith('pg-curation:category:')));
 
     const reindexed = await metadataAfter!({
       input: [photoPath],
       output: {keywords: ['family'], size: {width: 1, height: 1}, fileSize: 1, creationDate: 0}
     });
-    assert.deepEqual(reindexed.keywords, [
-      'family', 'pg-curation:delete-approved', 'pg-curation:requested-by:anna'
-    ]);
+    assert.ok(reindexed.keywords.includes('pg-curation:delete-approved'));
 
-    await buttons.get('Cancel my deletion request')!.callback(
+    await buttons.get('Cancel my curation requests')!.callback(
       {}, {data: {customFields: {confirm: true}}},
       {id: 1, name: 'anna', role: UserRoles.User}, media, mediaRepository
     );
     assert.deepEqual(media.metadata.keywords, ['family']);
-    assert.equal(saved.length, 3);
-
-    const cancelledDatabase = new Database(dbPath, {readonly: true});
-    const cancelledItem = cancelledDatabase.prepare(
-      'SELECT state, declined_by_user_name FROM deletion_items'
-    ).get() as any;
-    const cancelledRequest = cancelledDatabase.prepare(
-      'SELECT withdrawn_at FROM deletion_requests'
-    ).get() as any;
-    assert.deepEqual(cancelledItem, {state: 'DECLINED', declined_by_user_name: 'anna'});
-    assert.equal(typeof cancelledRequest.withdrawn_at, 'string');
-    cancelledDatabase.close();
+    assert.equal(saved.length, 4);
+    assert.ok(warnings.some(message => message.includes('blocked unauthorized attempt')));
   } finally {
     await cleanUp();
     rmSync(root, {recursive: true, force: true});

@@ -99,6 +99,63 @@ const MIGRATIONS = [
 
       CREATE INDEX curation_events_item_idx ON curation_events(deletion_item_id, created_at);
     `
+    },
+    {
+        version: 2,
+        sql: `
+      CREATE TABLE curation_media (
+        id INTEGER PRIMARY KEY,
+        relative_path TEXT NOT NULL UNIQUE,
+        media_type TEXT,
+        public_token TEXT NOT NULL UNIQUE DEFAULT (lower(hex(randomblob(16)))),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+
+      INSERT OR IGNORE INTO curation_media(relative_path, media_type, created_at, updated_at)
+        SELECT relative_path, media_type, created_at, updated_at FROM deletion_items;
+
+      CREATE TABLE metadata_requests (
+        id INTEGER PRIMARY KEY,
+        curation_media_id INTEGER NOT NULL,
+        category TEXT NOT NULL CHECK (category IN (
+          'faces', 'tags', 'location', 'date-time', 'title-caption', 'duplicate', 'other'
+        )),
+        state TEXT NOT NULL CHECK (state IN ('OPEN', 'RESOLVED', 'DISMISSED', 'WITHDRAWN')),
+        requested_by_user_id TEXT NOT NULL,
+        requested_by_user_name TEXT NOT NULL,
+        requested_at TEXT NOT NULL,
+        comment TEXT,
+        updated_at TEXT NOT NULL,
+        closed_by_user_id TEXT,
+        closed_by_user_name TEXT,
+        closed_at TEXT,
+        resolution_comment TEXT,
+        FOREIGN KEY (curation_media_id) REFERENCES curation_media(id) ON DELETE RESTRICT
+      );
+
+      CREATE UNIQUE INDEX metadata_requests_active_user_category_idx
+        ON metadata_requests(curation_media_id, category, requested_by_user_id)
+        WHERE state = 'OPEN';
+      CREATE INDEX metadata_requests_media_state_idx
+        ON metadata_requests(curation_media_id, state);
+      CREATE INDEX metadata_requests_state_category_idx
+        ON metadata_requests(state, category);
+
+      CREATE TABLE metadata_request_events (
+        id INTEGER PRIMARY KEY,
+        metadata_request_id INTEGER NOT NULL,
+        event_type TEXT NOT NULL,
+        actor_user_id TEXT,
+        actor_user_name TEXT,
+        created_at TEXT NOT NULL,
+        payload_json TEXT,
+        FOREIGN KEY (metadata_request_id) REFERENCES metadata_requests(id) ON DELETE RESTRICT
+      );
+
+      CREATE INDEX metadata_request_events_request_idx
+        ON metadata_request_events(metadata_request_id, created_at);
+    `
     }
 ];
 class CurationDatabase {

@@ -73,18 +73,18 @@ class ServerInstallScriptTests(unittest.TestCase):
                     PG2_CONTAINER=pigallery2
                     PG2_COMPOSE_DIR={install_root}
                     PG2_COMPOSE_SERVICE=pigallery2
-                    PG2_EXTENSION_DIR={install_root}/config/extensions/request-deletions
+                    PG2_EXTENSION_DIR={install_root}/config/extensions/curation-requests
                     PG2_CLI_DIR={install_root}/curation/cli
                     PG2_CUSTOM_ASSETS_DIR={install_root}/custom_assets
                     PG2_CONFIG_FILE={config_path}
-                    PG2_CONTAINER_EXTENSION_DIR=/app/data/config/extensions/request-deletions
+                    PG2_CONTAINER_EXTENSION_DIR=/app/data/config/extensions/curation-requests
                     PG2_CONTAINER_CURATION_DIR=/app/data/curation
                     PG2_CONTAINER_IMAGE_DIR=/app/data/images
                     PG2_CONTAINER_ASSET_PATH=/app/dist/en/custom-scripts.js
-                    PG2_EXTENSION_FOLDER=request-deletions
+                    PG2_EXTENSION_FOLDER=curation-requests
                     PG2_EXTENSION_DATABASE_PATH=/app/data/curation/curation.sqlite
                     PG2_EXTENSION_REQUESTER_ALLOWLIST=admin, family-user
-                    PG2_EXTENSION_REASON_MAX_LENGTH=2500
+                    PG2_EXTENSION_COMMENT_MAX_LENGTH=2500
                     PG2_CURATION_DB={install_root}/curation/curation.sqlite
                     PG2_PHOTO_ROOT={photo_root}
                     PG2_SIDECAR_STYLE=appended
@@ -110,7 +110,7 @@ class ServerInstallScriptTests(unittest.TestCase):
             self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
             self.assertIn("Installation complete.", completed.stdout)
 
-            extension_dir = install_root / "config" / "extensions" / "request-deletions"
+            extension_dir = install_root / "config" / "extensions" / "curation-requests"
             self.assertTrue((extension_dir / "server.js").is_file())
             self.assertTrue((extension_dir / "src" / "db" / "repository.js").is_file())
             self.assertFalse((extension_dir / "server.ts").exists())
@@ -135,10 +135,10 @@ class ServerInstallScriptTests(unittest.TestCase):
             self.assertEqual(updated["Database"], {"type": "sqlite"})
             self.assertIn("custom-scripts.js?v=", updated["Server"]["customHTMLHead"])
             self.assertEqual(
-                updated["Extensions"]["extensions"]["request-deletions"],
+                updated["Extensions"]["extensions"]["curation-requests"],
                 {
                     "enabled": True,
-                    "path": "request-deletions",
+                    "path": "curation-requests",
                     "configs": {
                         "databasePath": "/app/data/curation/curation.sqlite",
                         "reasonMaxLength": 2500,

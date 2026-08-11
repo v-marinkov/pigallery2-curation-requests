@@ -12,7 +12,19 @@ from pathlib import Path
 from typing import Sequence
 
 
-STATES = ("ACTIVE", "PENDING", "APPROVED", "DECLINED", "EXECUTED", "ERROR", "ALL")
+STATES = (
+    "ACTIVE",
+    "PENDING",
+    "APPROVED",
+    "DECLINED",
+    "EXECUTED",
+    "ERROR",
+    "OPEN",
+    "RESOLVED",
+    "DISMISSED",
+    "WITHDRAWN",
+    "ALL",
+)
 
 
 def load_local_env() -> dict[str, str]:
@@ -61,6 +73,9 @@ def run(database: Path, state: str) -> int:
     elif state == "ACTIVE":
         where = "WHERE state IN ('PENDING', 'APPROVED')"
         parameters = ()
+    elif state in ("OPEN", "RESOLVED", "DISMISSED", "WITHDRAWN"):
+        where = "WHERE 0"
+        parameters = ()
     else:
         where = "WHERE state = ?"
         parameters = (state,)
@@ -82,7 +97,7 @@ def run(database: Path, state: str) -> int:
         connection.close()
         return 2
 
-    print(f"CURATION ITEMS: {state}")
+    print(f"DELETION REQUESTS: {state}")
     print("=" * 72)
     for item in items:
         print(item["relative_path"])
@@ -123,7 +138,54 @@ def run(database: Path, state: str) -> int:
         if item["execution_error"]:
             print(f'  Error:       {item["execution_error"]}')
         print("-" * 72)
-    print(f"{len(items)} item(s)")
+    print(f"{len(items)} deletion item(s)")
+
+    has_metadata_requests = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'metadata_requests'"
+    ).fetchone() is not None
+    if has_metadata_requests:
+        if state == "ALL":
+            metadata_where = ""
+            metadata_parameters: tuple[str, ...] = ()
+        elif state == "ACTIVE":
+            metadata_where = "WHERE mr.state = 'OPEN'"
+            metadata_parameters = ()
+        elif state in ("OPEN", "RESOLVED", "DISMISSED", "WITHDRAWN"):
+            metadata_where = "WHERE mr.state = ?"
+            metadata_parameters = (state,)
+        else:
+            metadata_where = "WHERE 0"
+            metadata_parameters = ()
+        metadata_requests = connection.execute(
+            f"""
+            SELECT cm.relative_path, mr.category, mr.state,
+                   mr.requested_by_user_name, mr.requested_at, mr.comment,
+                   mr.updated_at, mr.closed_by_user_name, mr.closed_at,
+                   mr.resolution_comment
+              FROM metadata_requests mr
+              JOIN curation_media cm ON cm.id = mr.curation_media_id
+              {metadata_where}
+             ORDER BY CASE mr.state WHEN 'OPEN' THEN 0 ELSE 1 END,
+                      mr.updated_at, cm.relative_path, mr.category, mr.id
+            """,
+            metadata_parameters,
+        ).fetchall()
+        print()
+        print(f"METADATA REQUESTS: {state}")
+        print("=" * 72)
+        for request in metadata_requests:
+            print(request["relative_path"])
+            print(f'  Category:    {request["category"]}')
+            print(f'  State:       {request["state"]}')
+            print(f'  Requested:   {request["requested_by_user_name"]} @ {request["requested_at"]}')
+            if request["comment"]:
+                print(f'  Comment:     "{request["comment"]}"')
+            if request["closed_at"]:
+                print(f'  Closed:      {request["closed_by_user_name"]} @ {request["closed_at"]}')
+            if request["resolution_comment"]:
+                print(f'  Resolution:  "{request["resolution_comment"]}"')
+            print("-" * 72)
+        print(f"{len(metadata_requests)} metadata request(s)")
     connection.close()
     return 0
 
@@ -143,7 +205,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--state",
         choices=STATES,
         default="ACTIVE",
-        help="workflow state to show; ACTIVE includes PENDING and APPROVED and is the default",
+        help="workflow state to show; ACTIVE includes pending/approved deletions and open metadata requests",
     )
     return parser
 
