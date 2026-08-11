@@ -4,7 +4,7 @@ A community extension and host-side toolset for moderated photo curation in PiGa
 
 PiGallery2 keeps read-only access to the canonical photo library.
 
-Current release: **0.4.0**
+Current release: **1.0.0**
 Tested target: **PiGallery2 3.5.x**, extension kit **3.5.2**, Node.js **22**
 License: **MIT**
 
@@ -248,7 +248,7 @@ The PiGallery2 container must see:
 ### 2. Clone and configure
 
 ```bash
-git clone https://github.com/YOUR-ACCOUNT/pigallery2-curation-requests.git /opt/pigallery2-curation-requests
+git clone https://github.com/v-marinkov/pigallery2-curation-requests.git /opt/pigallery2-curation-requests
 cd /opt/pigallery2-curation-requests
 cp .env.example .env
 chmod 600 .env
