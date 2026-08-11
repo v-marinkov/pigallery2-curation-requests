@@ -15,6 +15,7 @@ License: **MIT**
 
 ## What it provides
 A toggle to enable **Curation mode** (for authorized users) under Tools. Still under TOols, a link to a custom search showing only the current user's curation requests.
+<img width="452" height="540" alt="image" src="https://github.com/user-attachments/assets/75c88407-0b44-4ab5-a546-89b1d6636435" />
 
 When **Curation mode** is enables, a **Request curation** pencil action appears on the top left of photo thumbnails. It lets an authorized user select one or more categories for redaction requests. Metadata corrections are grouped first, followed by the separate destructive deletion choice:
 
@@ -29,6 +30,7 @@ When **Curation mode** is enables, a **Request curation** pencil action appears 
 9. Comment (optional)
 
 The optional comment is stored in SQLite. It is never written into a photo, XMP sidecar, or PiGallery keyword.
+<img width="668" height="1078" alt="image" src="https://github.com/user-attachments/assets/b992600b-b778-468b-b6d3-6cc33b669eec" />
 
 Other functionality includes:
 
