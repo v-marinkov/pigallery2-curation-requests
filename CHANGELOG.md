@@ -21,6 +21,8 @@
 - Replaced the batch Resolve/Dismiss pair with state-dependent Approve all/Mark all done and Decline all controls.
 - Made granular and batch approval consistently blue while retaining green for Mark done.
 - Locked approved-deletion photos against all new metadata and deletion requests at both repository and frontend levels.
+- Moved all photo-level batch controls into a permission-aware panel at the top of the request-details dialog and hid their native overlay icons.
+- Kept Cancel my requests visually separate from administrator-only batch moderation while preserving individual row controls below.
 - Extended the host review report to include metadata correction requests while keeping the deletion executor deletion-only.
 - Preserved the existing deletion schema, approval fingerprints, queue locking, and defensive executor.
 

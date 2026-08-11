@@ -95,9 +95,11 @@ All curation buttons are hidden while Curation mode is disabled. When enabled:
 
 - authorized requesters see **Request curation**, except on photos for which that same user has an active deletion request;
 - once deletion is approved, the whole photo is locked against every new curation request—including requests from administrators—until the photo-level deletion is declined or its final requester cancels it;
-- an owner with active requests sees **Cancel my curation requests**;
-- administrators see **Approve all metadata requests** while any request is pending; after all are approved it becomes the visually distinct **Mark all metadata requests done** action;
-- administrators see **Decline all metadata requests** while metadata work remains active, except after deletion has been approved;
+- an owner with active requests sees a separate **Cancel my requests** panel at the top of the request-details dialog;
+- administrators receive an **All requests on this photo** panel beneath it; ordinary users never receive this panel;
+- that administrator panel shows blue **Approve all metadata requests** while any request is pending; after all are approved it becomes the visually distinct green **Mark all metadata requests done** action;
+- the administrator panel shows **Decline all metadata requests** while metadata work remains active, except after deletion has been approved;
+- the same panel shows red **Approve all** and **Decline all** deletion controls according to the photo-level deletion state;
 - administrators see deletion Approve only when deletion is pending;
 - administrators see deletion Decline while deletion is pending, approved, or in error;
 - a top-right request-details badge appears for administrators and for owners of requests on that photo;
@@ -107,7 +109,7 @@ Cancelling withdraws all active requests made by that user for that photo. It ne
 
 For non-administrators, the details dialog offers **Cancel** for each request owned by the authenticated user. Metadata cancellation withdraws that pending or approved active row. Deletion cancellation works while the photo-level deletion state is `PENDING`, `APPROVED`, or `ERROR`; if other deletion requesters remain, their workflow continues, and cancelling the final deletion request removes the photo from the active deletion queue. Administrators do not receive the redundant owner-cancellation action because they already have moderation controls.
 
-The batch workflow mirrors the granular workflow. **Approve all metadata requests** accepts every still-pending row but keeps it active. When no pending rows remain, the blue approval control is replaced by a green **Mark all metadata requests done** control. Completion closes all approved rows as `RESOLVED`; **Decline all metadata requests** closes every pending or approved row as `DISMISSED`. Deletion state remains independent.
+The batch workflow mirrors the granular workflow. All batch controls live at the top of the request-details dialog, above the clearly labelled individual request rows; the corresponding native photo-overlay batch icons are hidden. **Approve all metadata requests** accepts every still-pending row but keeps it active. When no pending rows remain, the blue approval control is replaced by a green **Mark all metadata requests done** control. Completion closes all approved rows as `RESOLVED`; **Decline all metadata requests** closes every pending or approved row as `DISMISSED`. Deletion state remains independent.
 
 Deletion is an exclusive request choice for each requester. Selecting it clears and disables the metadata categories in the popup, and the server ignores metadata flags in any request that also contains deletion. A user who owns an active deletion request cannot add metadata requests for that photo, even by bypassing the frontend; other users remain free to report metadata problems. Therefore metadata and deletion moderation pairs may coexist for administrators when different users have submitted the two kinds of request; colored outlines distinguish them.
 

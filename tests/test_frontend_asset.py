@@ -89,6 +89,32 @@ class FrontendAssetTests(unittest.TestCase):
         self.assertIn("background: var(--bs-primary, #0d6efd)", source)
         self.assertIn("background: var(--bs-success, #198754)", source)
 
+    def test_batch_controls_live_in_details_dialog_with_permission_separation(self):
+        source = FRONTEND_ASSET.read_text(encoding="utf-8")
+
+        self.assertIn("const renderBatchControls", source)
+        self.assertIn("ownsActiveRequest", source)
+        self.assertIn("'Cancel my requests'", source)
+        self.assertIn("if (reviewContext.canModerate !== true)", source)
+        self.assertIn("heading.textContent = 'All requests on this photo'", source)
+        self.assertIn("individualHeading.textContent = 'Individual requests'", source)
+        self.assertIn("endpoint: 'approve-all-metadata-requests'", source)
+        self.assertIn("endpoint: 'mark-all-metadata-requests-done'", source)
+        self.assertIn("endpoint: 'decline-all-metadata-requests'", source)
+        self.assertIn("endpoint: 'approve-deletion'", source)
+        self.assertIn("endpoint: 'decline-deletion'", source)
+        self.assertIn("'btn btn-sm btn-primary'", source)
+        self.assertIn("'btn btn-sm btn-success'", source)
+        self.assertIn("'btn btn-sm btn-danger'", source)
+
+    def test_native_batch_photo_buttons_are_hidden(self):
+        source = FRONTEND_ASSET.read_text(encoding="utf-8")
+
+        self.assertIn('button[title="Cancel my curation requests"]', source)
+        self.assertIn('button[title="Approve all metadata requests (admin only)"]', source)
+        self.assertIn('button[title="Approve deletion (admin only)"]', source)
+        self.assertIn("their only UI is the clearly labelled batch panel", source)
+
     def test_admin_can_review_individual_metadata_requests(self):
         source = FRONTEND_ASSET.read_text(encoding="utf-8")
 

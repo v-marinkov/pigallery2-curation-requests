@@ -203,6 +203,18 @@
       display: none !important;
     }
 
+    /* These actions remain registered so PiGallery2 exposes their authenticated
+       media routes, but their only UI is the clearly labelled batch panel in
+       the request-details dialog. */
+    button[title="Cancel my curation requests"],
+    button[title="Approve all metadata requests (admin only)"],
+    button[title="Mark all metadata requests done (admin only)"],
+    button[title="Decline all metadata requests (admin only)"],
+    button[title="Approve deletion (admin only)"],
+    button[title="Decline deletion (admin only)"] {
+      display: none !important;
+    }
+
     html[data-pg-can-moderate-curation="false"] .photo-container:not(.pg-curation-requested-by-me)
       .pg-curation-details-button {
       display: none !important;
@@ -270,6 +282,31 @@
     .pg-curation-request-actions { display: inline-flex; gap: .4rem; }
     .pg-curation-request-action-status { font-size: .875rem; margin-top: .4rem; }
     .pg-curation-request-action-status.text-danger { color: var(--bs-danger, #dc3545); }
+    .pg-curation-batch-panel {
+      margin-top: 1rem;
+      padding: .85rem;
+      border: 1px solid rgba(108, 117, 125, .4);
+      border-radius: .45rem;
+      background: rgba(108, 117, 125, .08);
+    }
+    .pg-curation-batch-panel h3 { margin: 0 0 .65rem; font-size: 1rem; }
+    .pg-curation-batch-row { display: flex; align-items: center; gap: .75rem; margin-top: .55rem; }
+    .pg-curation-batch-row:first-of-type { margin-top: 0; }
+    .pg-curation-batch-row > span { flex: 1; font-weight: 600; }
+    .pg-curation-batch-actions { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; gap: .4rem; }
+    .pg-curation-own-actions {
+      margin-top: .75rem;
+      padding: .65rem .85rem;
+      border-left: .3rem solid var(--bs-secondary, #6c757d);
+      border-radius: .3rem;
+      background: rgba(108, 117, 125, .06);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .75rem;
+    }
+    .pg-curation-own-actions span { font-weight: 600; }
+    .pg-curation-individual-heading { margin: 1.25rem 0 0; font-size: 1rem; }
   `;
 
   document.getElementById('pg2-curation-button-permissions')?.remove();
@@ -772,6 +809,189 @@
     }
   };
 
+  const runBatchAction = async ({
+    endpoint, mediaPath, controlRoot, confirmation, successMessage,
+    resolutionPrompt
+  }) => {
+    if (!globalThis.confirm(confirmation)) {
+      return;
+    }
+    let resolutionComment;
+    if (resolutionPrompt) {
+      resolutionComment = globalThis.prompt(resolutionPrompt, '');
+      if (resolutionComment === null) {
+        return;
+      }
+    }
+    const buttons = controlRoot.querySelectorAll('button');
+    buttons.forEach(button => { button.disabled = true; });
+    let status = controlRoot.querySelector('.pg-curation-request-action-status');
+    if (!status) {
+      status = document.createElement('div');
+      status.className = 'pg-curation-request-action-status';
+      controlRoot.appendChild(status);
+    }
+    status.classList.remove('text-danger');
+    status.textContent = 'Action in progress…';
+    try {
+      const customFields = {confirm: true};
+      if (resolutionComment !== undefined) {
+        customFields.resolutionComment = resolutionComment;
+      }
+      await unwrapResponse(await fetch(
+        extensionEndpoint(endpoint),
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          cache: 'no-store',
+          headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+          body: JSON.stringify({media: mediaPath, data: {customFields}})
+        }
+      ));
+      status.textContent = `${successMessage} Refreshing…`;
+      globalThis.location.reload();
+    } catch (error) {
+      console.error(`[${EXTENSION_ID}] Batch curation action failed.`, error);
+      status.classList.add('text-danger');
+      status.textContent = `Action failed: ${error.message || error}`;
+      buttons.forEach(button => { button.disabled = false; });
+    }
+  };
+
+  const makeBatchButton = (label, className, action) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = className;
+    button.textContent = label;
+    button.addEventListener('click', () => { void action(); });
+    return button;
+  };
+
+  const renderBatchControls = (body, requests, reviewContext) => {
+    const mediaPath = typeof reviewContext.media === 'string' ? reviewContext.media : '';
+    if (!mediaPath) {
+      return;
+    }
+    const ownsActiveRequest = requests.some(request => request.ownRequest === true);
+    if (ownsActiveRequest) {
+      const ownPanel = document.createElement('section');
+      ownPanel.className = 'pg-curation-own-actions';
+      const label = document.createElement('span');
+      label.textContent = 'Your requests on this photo';
+      const cancel = makeBatchButton(
+        'Cancel my requests',
+        'btn btn-sm btn-outline-secondary',
+        () => runBatchAction({
+          endpoint: 'cancel-own-curation-requests',
+          mediaPath,
+          controlRoot: ownPanel,
+          confirmation: "Cancel all of your active requests for this photo?\n\nOther users' requests are not affected.",
+          successMessage: 'Your requests were cancelled.'
+        })
+      );
+      ownPanel.append(label, cancel);
+      body.appendChild(ownPanel);
+    }
+
+    if (reviewContext.canModerate !== true) {
+      return;
+    }
+    const metadataPending = requests.some(
+      request => request.kind === 'metadata' && request.state === 'OPEN'
+    );
+    const metadataApproved = requests.some(
+      request => request.kind === 'metadata' && request.state === 'APPROVED'
+    );
+    const deletionState = requests.find(request => request.kind === 'deletion')?.state;
+    const deletionApproved = deletionState === 'APPROVED';
+    const showMetadataActions = (metadataPending || metadataApproved) && !deletionApproved;
+    const showDeletionActions = ['PENDING', 'APPROVED', 'ERROR'].includes(deletionState);
+    if (!showMetadataActions && !showDeletionActions) {
+      return;
+    }
+
+    const panel = document.createElement('section');
+    panel.className = 'pg-curation-batch-panel';
+    const heading = document.createElement('h3');
+    heading.textContent = 'All requests on this photo';
+    panel.appendChild(heading);
+
+    if (showMetadataActions) {
+      const row = document.createElement('div');
+      row.className = 'pg-curation-batch-row';
+      const label = document.createElement('span');
+      label.textContent = 'Metadata requests';
+      const actions = document.createElement('div');
+      actions.className = 'pg-curation-batch-actions';
+      if (metadataPending) {
+        actions.appendChild(makeBatchButton(
+          'Approve all',
+          'btn btn-sm btn-primary',
+          () => runBatchAction({
+            endpoint: 'approve-all-metadata-requests', mediaPath, controlRoot: panel,
+            confirmation: 'Approve every pending metadata request for this photo?',
+            successMessage: 'All pending metadata requests were approved.'
+          })
+        ));
+      } else if (metadataApproved) {
+        actions.appendChild(makeBatchButton(
+          'Mark all done',
+          'btn btn-sm btn-success',
+          () => runBatchAction({
+            endpoint: 'mark-all-metadata-requests-done', mediaPath, controlRoot: panel,
+            confirmation: 'Mark every approved metadata request for this photo as done?',
+            resolutionPrompt: 'Optional resolution comment:',
+            successMessage: 'All approved metadata requests were marked done.'
+          })
+        ));
+      }
+      actions.appendChild(makeBatchButton(
+        'Decline all',
+        'btn btn-sm btn-outline-danger',
+        () => runBatchAction({
+          endpoint: 'decline-all-metadata-requests', mediaPath, controlRoot: panel,
+          confirmation: 'Decline every pending or approved metadata request for this photo?',
+          resolutionPrompt: 'Optional decline comment:',
+          successMessage: 'All metadata requests were declined.'
+        })
+      ));
+      row.append(label, actions);
+      panel.appendChild(row);
+    }
+
+    if (showDeletionActions) {
+      const row = document.createElement('div');
+      row.className = 'pg-curation-batch-row';
+      const label = document.createElement('span');
+      label.textContent = 'Deletion requests';
+      const actions = document.createElement('div');
+      actions.className = 'pg-curation-batch-actions';
+      if (deletionState === 'PENDING') {
+        actions.appendChild(makeBatchButton(
+          'Approve all',
+          'btn btn-sm btn-danger',
+          () => runBatchAction({
+            endpoint: 'approve-deletion', mediaPath, controlRoot: panel,
+            confirmation: 'Approve deletion of this photo for every requester?\n\nThis adds it to the host-side deletion queue.',
+            successMessage: 'Deletion was approved.'
+          })
+        ));
+      }
+      actions.appendChild(makeBatchButton(
+        'Decline all',
+        'btn btn-sm btn-outline-danger',
+        () => runBatchAction({
+          endpoint: 'decline-deletion', mediaPath, controlRoot: panel,
+          confirmation: 'Decline the photo-level deletion workflow for every requester?',
+          successMessage: 'Deletion was declined.'
+        })
+      ));
+      row.append(label, actions);
+      panel.appendChild(row);
+    }
+    body.appendChild(panel);
+  };
+
   const renderRequestDetails = (requests, reviewContext = {}) => {
     const dialog = ensureDetailsDialog();
     const body = dialog.querySelector('.pg-curation-dialog-body');
@@ -781,6 +1001,11 @@
       empty.textContent = 'No request details are available for your account.';
       body.appendChild(empty);
     } else {
+      renderBatchControls(body, requests, reviewContext);
+      const individualHeading = document.createElement('h3');
+      individualHeading.className = 'pg-curation-individual-heading';
+      individualHeading.textContent = 'Individual requests';
+      body.appendChild(individualHeading);
       const deletionApproved = requests.some(
         request => request.kind === 'deletion' && request.state === 'APPROVED'
       );
