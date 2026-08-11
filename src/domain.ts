@@ -115,6 +115,7 @@ export interface MetadataRequest {
 }
 
 export interface ClientRequestDetail {
+  requestId?: number;
   kind: 'deletion' | 'metadata';
   category: 'deletion' | MetadataCategory;
   state: DeletionState | MetadataRequestState;

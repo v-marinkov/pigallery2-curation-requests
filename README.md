@@ -93,16 +93,19 @@ All curation buttons are hidden while Curation mode is disabled. When enabled:
 
 - authorized requesters see **Request curation**, except on photos for which that same user has an active deletion request;
 - an owner with active requests sees **Cancel my curation requests**;
-- administrators see metadata Resolve/Dismiss whenever metadata requests are open;
+- administrators see metadata Resolve/Dismiss whenever metadata requests are open, except after deletion has been approved;
 - administrators see deletion Approve only when deletion is pending;
 - administrators see deletion Decline while deletion is pending, approved, or in error;
-- a top-right request-details badge appears for administrators and for owners of requests on that photo.
+- a top-right request-details badge appears for administrators and for owners of requests on that photo;
+- administrators can approve or decline one open metadata request from that details dialog, while the existing bulk controls remain available.
 
 Cancelling withdraws all active requests made by that user for that photo. It never affects requests made by another account.
 
 Resolving or dismissing metadata currently closes every open non-deletion request on that photo in one administrator action. Deletion state remains independent.
 
 Deletion is an exclusive request choice for each requester. Selecting it clears and disables the metadata categories in the popup, and the server ignores metadata flags in any request that also contains deletion. A user who owns an active deletion request cannot add metadata requests for that photo, even by bypassing the frontend; other users remain free to report metadata problems. Therefore metadata and deletion moderation pairs may coexist for administrators when different users have submitted the two kinds of request; colored outlines distinguish them.
+
+Granular metadata **Approve** closes exactly that request as `RESOLVED`; granular **Decline** closes it as `DISMISSED`. Each action is bound to the authenticated administrator, opaque photo token, PiGallery media path, request ID, and current `OPEN` state in one SQLite transaction. Deletion requests remain file-level decisions and use the separate red controls. Once deletion is `APPROVED`, metadata moderation controls are hidden for that photo.
 
 ## Curation mode
 
@@ -116,7 +119,7 @@ The frontend script inserts a **Curation mode** switch inside PiGallery2's lazil
 
 ## Comments in the gallery
 
-Synthetic cached keywords include an opaque 32-character item token, not the comment. Clicking the top-right `ⓘ` badge asks an authenticated extension endpoint for details.
+Synthetic cached keywords include an opaque 32-character item token, not the comment. Clicking the top-right `ⓘ` badge asks an authenticated extension endpoint for details. Administrators also receive controls for resolving or dismissing individual open metadata rows; ordinary users receive a read-only view of their own rows.
 
 Administrators receive all active requests for that item. Ordinary users receive only requests stored under their authenticated user ID. The dialog renders all values as text, preventing request comments from being interpreted as HTML.
 

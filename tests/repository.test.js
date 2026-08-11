@@ -205,10 +205,29 @@ const fingerprint = {
         const ownerDetails = repository.getClientRequestDetails(projection.itemToken, { id: '1', name: 'anna' }, false);
         strict_1.default.deepEqual(ownerDetails.map(detail => detail.category), ['faces', 'location']);
         strict_1.default.ok(ownerDetails.every(detail => detail.ownRequest));
+        strict_1.default.ok(ownerDetails.every(detail => detail.requestId === undefined));
         strict_1.default.equal(ownerDetails[0].comment, 'Please identify the grandparents');
         strict_1.default.deepEqual(repository.getClientRequestDetails(projection.itemToken, { id: '3', name: 'charlie' }, false), []);
         const adminDetails = repository.getClientRequestDetails(projection.itemToken, { id: '9', name: 'admin' }, true);
         strict_1.default.deepEqual(adminDetails.map(detail => detail.category), ['faces', 'location', 'tags']);
+        strict_1.default.ok(adminDetails.every(detail => Number.isInteger(detail.requestId)));
+        repository.close();
+    });
+    (0, node_test_1.it)('resolves or dismisses exactly one validated metadata request', () => {
+        const repository = createRepository();
+        repository.requestMetadata({
+            relativePath: 'photo.jpg', mediaType: 'photo', categories: ['faces', 'location'],
+            actor: { id: '1', name: 'anna' }
+        });
+        const projection = repository.getProjection('photo.jpg');
+        const details = repository.getClientRequestDetails(projection.itemToken, { id: '9', name: 'admin' }, true);
+        const faces = details.find(detail => detail.category === 'faces');
+        const location = details.find(detail => detail.category === 'location');
+        strict_1.default.equal(repository.closeMetadataRequest('photo.jpg', faces.requestId, { id: '9', name: 'admin' }, 'RESOLVED').state, 'RESOLVED');
+        strict_1.default.deepEqual(repository.getProjection('photo.jpg')?.metadataCategories, ['location']);
+        strict_1.default.throws(() => repository.closeMetadataRequest('other.jpg', location.requestId, { id: '9', name: 'admin' }, 'DISMISSED'), /no matching open metadata/);
+        strict_1.default.equal(repository.closeMetadataRequest('photo.jpg', location.requestId, { id: '9', name: 'admin' }, 'DISMISSED').state, 'DISMISSED');
+        strict_1.default.equal(repository.getProjection('photo.jpg'), null);
         repository.close();
     });
     (0, node_test_1.it)('blocks metadata only for the owner of an active deletion request', () => {

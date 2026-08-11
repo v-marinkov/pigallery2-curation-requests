@@ -204,6 +204,7 @@ describe('CurationRepository', () => {
     );
     assert.deepEqual(ownerDetails.map(detail => detail.category), ['faces', 'location']);
     assert.ok(ownerDetails.every(detail => detail.ownRequest));
+    assert.ok(ownerDetails.every(detail => detail.requestId === undefined));
     assert.equal(ownerDetails[0].comment, 'Please identify the grandparents');
     assert.deepEqual(
       repository.getClientRequestDetails(projection!.itemToken!, {id: '3', name: 'charlie'}, false),
@@ -213,6 +214,43 @@ describe('CurationRepository', () => {
       projection!.itemToken!, {id: '9', name: 'admin'}, true
     );
     assert.deepEqual(adminDetails.map(detail => detail.category), ['faces', 'location', 'tags']);
+    assert.ok(adminDetails.every(detail => Number.isInteger(detail.requestId)));
+    repository.close();
+  });
+
+  it('resolves or dismisses exactly one validated metadata request', () => {
+    const repository = createRepository();
+    repository.requestMetadata({
+      relativePath: 'photo.jpg', mediaType: 'photo', categories: ['faces', 'location'],
+      actor: {id: '1', name: 'anna'}
+    });
+    const projection = repository.getProjection('photo.jpg')!;
+    const details = repository.getClientRequestDetails(
+      projection.itemToken!, {id: '9', name: 'admin'}, true
+    );
+    const faces = details.find(detail => detail.category === 'faces')!;
+    const location = details.find(detail => detail.category === 'location')!;
+
+    assert.equal(
+      repository.closeMetadataRequest(
+        'photo.jpg', faces.requestId!, {id: '9', name: 'admin'}, 'RESOLVED'
+      ).state,
+      'RESOLVED'
+    );
+    assert.deepEqual(repository.getProjection('photo.jpg')?.metadataCategories, ['location']);
+    assert.throws(
+      () => repository.closeMetadataRequest(
+        'other.jpg', location.requestId!, {id: '9', name: 'admin'}, 'DISMISSED'
+      ),
+      /no matching open metadata/
+    );
+    assert.equal(
+      repository.closeMetadataRequest(
+        'photo.jpg', location.requestId!, {id: '9', name: 'admin'}, 'DISMISSED'
+      ).state,
+      'DISMISSED'
+    );
+    assert.equal(repository.getProjection('photo.jpg'), null);
     repository.close();
   });
 

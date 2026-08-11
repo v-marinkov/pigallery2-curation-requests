@@ -28,6 +28,7 @@ it('executes general curation and deletion workflows without changing the photo'
   const apiRoles = new Map<string, UserRoles>();
   const guards = new Map<string, {role: UserRoles; middleware: RouteMiddleware}>();
   const jsonRoutes = new Map<string, {role: UserRoles; callback: JsonCallback}>();
+  const mediaRoutes = new Map<string, {role: UserRoles; callback: ButtonCallback}>();
   const uiButtonConfigs: any[] = [];
   const warnings: string[] = [];
   let metadataAfter: MetadataAfter | null = null;
@@ -60,8 +61,12 @@ it('executes general curation and deletion workflows without changing the photo'
           paths: string[], role: UserRoles, _invalidate: boolean, callback: ButtonCallback
         ): string => {
           const config = uiButtonConfigs.find(entry => entry.apiPath === paths[0]);
-          buttons.set(config.name, {config, callback});
-          apiRoles.set(config.name, role);
+          if (config) {
+            buttons.set(config.name, {config, callback});
+            apiRoles.set(config.name, role);
+          } else {
+            mediaRoutes.set(paths[0], {role, callback});
+          }
           return paths[0];
         },
         rawMiddleware: (paths: string[], role: UserRoles, middleware: RouteMiddleware): string => {
@@ -129,6 +134,8 @@ it('executes general curation and deletion workflows without changing the photo'
     assert.equal(apiRoles.get('Resolve metadata requests (admin only)'), UserRoles.Admin);
     assert.equal(guards.get('request-curation')?.role, UserRoles.User);
     assert.equal(guards.get('approve-deletion')?.role, UserRoles.User);
+    assert.equal(guards.get('review-metadata-request')?.role, UserRoles.User);
+    assert.equal(mediaRoutes.get('review-metadata-request')?.role, UserRoles.User);
     assert.equal(jsonRoutes.get('client-permissions')?.role, UserRoles.User);
     assert.equal(jsonRoutes.get('request-details/:token')?.role, UserRoles.User);
 
@@ -214,7 +221,7 @@ it('executes general curation and deletion workflows without changing the photo'
     const strangerDetails = jsonRoutes.get('request-details/:token')?.callback(
       {token}, undefined, {id: 2, name: 'bob', role: UserRoles.User}
     ) as any;
-    assert.deepEqual(strangerDetails, {requests: []});
+    assert.deepEqual(strangerDetails, {requests: [], media: null, canModerate: false});
 
     await buttons.get('Resolve metadata requests (admin only)')!.callback(
       {}, {data: {customFields: {confirm: true}}},
@@ -274,12 +281,34 @@ it('executes general curation and deletion workflows without changing the photo'
       (keyword: string) => keyword.startsWith('pg-curation:delete-requested-by:')
     ));
 
+    const metadataToken = media.metadata.keywords
+      .find((keyword: string) => keyword.startsWith('pg-curation:item:'))!
+      .split(':')
+      .at(-1)!;
+    const adminMetadataDetails = jsonRoutes.get('request-details/:token')?.callback(
+      {token: metadataToken}, undefined, {id: 9, name: 'admin', role: UserRoles.Admin}
+    ) as any;
+    assert.equal(adminMetadataDetails.canModerate, true);
+    assert.equal(adminMetadataDetails.media, '2024/Christmas/photo.jpg');
+    const facesRequest = adminMetadataDetails.requests.find(
+      (request: any) => request.category === 'faces'
+    );
+    await mediaRoutes.get('review-metadata-request')!.callback(
+      {},
+      {data: {customFields: {requestId: facesRequest.requestId, outcome: 'RESOLVED'}}},
+      {id: 9, name: 'admin', role: UserRoles.Admin},
+      media,
+      mediaRepository
+    );
+    assert.ok(!media.metadata.keywords.includes('pg-curation:category:faces'));
+    assert.ok(media.metadata.keywords.includes('pg-curation:category:other'));
+
     await buttons.get('Resolve metadata requests (admin only)')!.callback(
       {}, {data: {customFields: {confirm: true, resolutionComment: 'XMP fixed'}}},
       {id: 9, name: 'admin', role: UserRoles.Admin}, media, mediaRepository
     );
     assert.deepEqual(media.metadata.keywords, ['family']);
-    assert.equal(saved.length, 5);
+    assert.equal(saved.length, 6);
     assert.ok(warnings.some(message => message.includes('blocked unauthorized attempt')));
   } finally {
     await cleanUp();

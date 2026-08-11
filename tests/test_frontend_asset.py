@@ -74,6 +74,17 @@ class FrontendAssetTests(unittest.TestCase):
         self.assertIn("outline: 2px solid rgba(13, 110, 253, .9)", source)
         self.assertIn("outline: 2px solid rgba(220, 53, 69, .95)", source)
 
+    def test_admin_can_review_individual_metadata_requests(self):
+        source = FRONTEND_ASSET.read_text(encoding="utf-8")
+
+        self.assertIn("extensionEndpoint('review-metadata-request')", source)
+        self.assertIn("request.requestId", source)
+        self.assertIn("approve.textContent = 'Approve'", source)
+        self.assertIn("decline.textContent = 'Decline'", source)
+        self.assertIn("request.state === 'OPEN'", source)
+        self.assertIn("!deletionApproved", source)
+        self.assertIn(".photo-container.pg-curation-delete-approved", source)
+
 
 if __name__ == "__main__":
     unittest.main()

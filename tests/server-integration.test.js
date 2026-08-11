@@ -57,6 +57,7 @@ const server_1 = require("../server");
     const apiRoles = new Map();
     const guards = new Map();
     const jsonRoutes = new Map();
+    const mediaRoutes = new Map();
     const uiButtonConfigs = [];
     const warnings = [];
     let metadataAfter = null;
@@ -87,8 +88,13 @@ const server_1 = require("../server");
             post: {
                 mediaJsonResponse: (paths, role, _invalidate, callback) => {
                     const config = uiButtonConfigs.find(entry => entry.apiPath === paths[0]);
-                    buttons.set(config.name, { config, callback });
-                    apiRoles.set(config.name, role);
+                    if (config) {
+                        buttons.set(config.name, { config, callback });
+                        apiRoles.set(config.name, role);
+                    }
+                    else {
+                        mediaRoutes.set(paths[0], { role, callback });
+                    }
                     return paths[0];
                 },
                 rawMiddleware: (paths, role, middleware) => {
@@ -148,6 +154,8 @@ const server_1 = require("../server");
         strict_1.default.equal(apiRoles.get('Resolve metadata requests (admin only)'), UserDTO_1.UserRoles.Admin);
         strict_1.default.equal(guards.get('request-curation')?.role, UserDTO_1.UserRoles.User);
         strict_1.default.equal(guards.get('approve-deletion')?.role, UserDTO_1.UserRoles.User);
+        strict_1.default.equal(guards.get('review-metadata-request')?.role, UserDTO_1.UserRoles.User);
+        strict_1.default.equal(mediaRoutes.get('review-metadata-request')?.role, UserDTO_1.UserRoles.User);
         strict_1.default.equal(jsonRoutes.get('client-permissions')?.role, UserDTO_1.UserRoles.User);
         strict_1.default.equal(jsonRoutes.get('request-details/:token')?.role, UserDTO_1.UserRoles.User);
         strict_1.default.deepEqual(jsonRoutes.get('client-permissions')?.callback(undefined, undefined, { id: 1, name: 'anna', role: UserDTO_1.UserRoles.User }), { userId: '1', userName: 'anna', canRequestCuration: true, canModerateCuration: false });
@@ -188,7 +196,7 @@ const server_1 = require("../server");
         const ownerDetails = jsonRoutes.get('request-details/:token')?.callback({ token }, undefined, { id: 1, name: 'anna', role: UserDTO_1.UserRoles.User });
         strict_1.default.deepEqual(ownerDetails.requests.map((request) => request.category), ['deletion']);
         const strangerDetails = jsonRoutes.get('request-details/:token')?.callback({ token }, undefined, { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User });
-        strict_1.default.deepEqual(strangerDetails, { requests: [] });
+        strict_1.default.deepEqual(strangerDetails, { requests: [], media: null, canModerate: false });
         await buttons.get('Resolve metadata requests (admin only)').callback({}, { data: { customFields: { confirm: true } } }, { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
         await buttons.get('Approve deletion (admin only)').callback({}, { data: { customFields: { confirm: true } } }, { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
         const dbPath = path.join(databaseRoot, 'curation', 'curation.sqlite');
@@ -215,9 +223,20 @@ const server_1 = require("../server");
         strict_1.default.ok(media.metadata.keywords.includes('pg-curation:category:other'));
         strict_1.default.ok(!media.metadata.keywords.includes('pg-curation:delete-pending'));
         strict_1.default.ok(!media.metadata.keywords.some((keyword) => keyword.startsWith('pg-curation:delete-requested-by:')));
+        const metadataToken = media.metadata.keywords
+            .find((keyword) => keyword.startsWith('pg-curation:item:'))
+            .split(':')
+            .at(-1);
+        const adminMetadataDetails = jsonRoutes.get('request-details/:token')?.callback({ token: metadataToken }, undefined, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin });
+        strict_1.default.equal(adminMetadataDetails.canModerate, true);
+        strict_1.default.equal(adminMetadataDetails.media, '2024/Christmas/photo.jpg');
+        const facesRequest = adminMetadataDetails.requests.find((request) => request.category === 'faces');
+        await mediaRoutes.get('review-metadata-request').callback({}, { data: { customFields: { requestId: facesRequest.requestId, outcome: 'RESOLVED' } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
+        strict_1.default.ok(!media.metadata.keywords.includes('pg-curation:category:faces'));
+        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:category:other'));
         await buttons.get('Resolve metadata requests (admin only)').callback({}, { data: { customFields: { confirm: true, resolutionComment: 'XMP fixed' } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
         strict_1.default.deepEqual(media.metadata.keywords, ['family']);
-        strict_1.default.equal(saved.length, 5);
+        strict_1.default.equal(saved.length, 6);
         strict_1.default.ok(warnings.some(message => message.includes('blocked unauthorized attempt')));
     }
     finally {

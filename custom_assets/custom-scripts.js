@@ -159,6 +159,11 @@
       outline-offset: 1px;
     }
 
+    .photo-container.pg-curation-delete-approved button[title="Resolve metadata requests (admin only)"],
+    .photo-container.pg-curation-delete-approved button[title="Dismiss metadata requests (admin only)"] {
+      display: none !important;
+    }
+
     html[data-pg-can-moderate-curation="false"] .photo-container:not(.pg-curation-requested-by-me)
       .pg-curation-details-button {
       display: none !important;
@@ -221,6 +226,11 @@
     .pg-curation-dialog-close { border: 0; background: transparent; font-size: 1.5rem; }
     .pg-curation-request-detail { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(128,128,128,.35); }
     .pg-curation-request-detail p { margin: .35rem 0 0; white-space: pre-wrap; }
+    .pg-curation-request-detail-header { display: flex; align-items: center; gap: .75rem; }
+    .pg-curation-request-detail-header strong { flex: 1; }
+    .pg-curation-request-actions { display: inline-flex; gap: .4rem; }
+    .pg-curation-request-action-status { font-size: .875rem; margin-top: .4rem; }
+    .pg-curation-request-action-status.text-danger { color: var(--bs-danger, #dc3545); }
   `;
 
   document.getElementById('pg2-curation-button-permissions')?.remove();
@@ -363,6 +373,7 @@
     photoContainer.classList.toggle('pg-curation-present', keywordText.includes(TAG_PREFIX));
     photoContainer.classList.toggle('pg-curation-has-metadata', hasMetadata);
     photoContainer.classList.toggle('pg-curation-delete-pending', deletionPending);
+    photoContainer.classList.toggle('pg-curation-delete-approved', deletionApproved);
     photoContainer.classList.toggle(
       'pg-curation-has-deletion',
       deletionPending || deletionApproved || deletionError
@@ -557,7 +568,47 @@
     return dialog;
   };
 
-  const renderRequestDetails = requests => {
+  const reviewMetadataRequest = async (request, mediaPath, outcome, section) => {
+    const verb = outcome === 'RESOLVED' ? 'Approve' : 'Decline';
+    const label = CATEGORY_LABELS[request.category] || String(request.category);
+    if (!globalThis.confirm(`${verb} the ${label} request from ${request.requesterName}?`)) {
+      return;
+    }
+    const buttons = section.querySelectorAll('.pg-curation-request-actions button');
+    buttons.forEach(button => { button.disabled = true; });
+    let status = section.querySelector('.pg-curation-request-action-status');
+    if (!status) {
+      status = document.createElement('div');
+      status.className = 'pg-curation-request-action-status';
+      section.appendChild(status);
+    }
+    status.classList.remove('text-danger');
+    status.textContent = `${verb} in progress…`;
+    try {
+      await unwrapResponse(await fetch(
+        extensionEndpoint('review-metadata-request'),
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          cache: 'no-store',
+          headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+          body: JSON.stringify({
+            media: mediaPath,
+            data: {customFields: {requestId: request.requestId, outcome}}
+          })
+        }
+      ));
+      status.textContent = `${verb}d. Refreshing…`;
+      globalThis.location.reload();
+    } catch (error) {
+      console.error(`[${EXTENSION_ID}] Could not review metadata request.`, error);
+      status.classList.add('text-danger');
+      status.textContent = `${verb} failed: ${error.message || error}`;
+      buttons.forEach(button => { button.disabled = false; });
+    }
+  };
+
+  const renderRequestDetails = (requests, reviewContext = {}) => {
     const dialog = ensureDetailsDialog();
     const body = dialog.querySelector('.pg-curation-dialog-body');
     body.replaceChildren();
@@ -566,17 +617,49 @@
       empty.textContent = 'No request details are available for your account.';
       body.appendChild(empty);
     } else {
+      const deletionApproved = requests.some(
+        request => request.kind === 'deletion' && request.state === 'APPROVED'
+      );
+      const canReviewMetadata = reviewContext.canModerate === true &&
+        typeof reviewContext.media === 'string' && reviewContext.media.length > 0 &&
+        !deletionApproved;
       for (const request of requests) {
         const section = document.createElement('section');
         section.className = 'pg-curation-request-detail';
+        const header = document.createElement('div');
+        header.className = 'pg-curation-request-detail-header';
         const title = document.createElement('strong');
         title.textContent = CATEGORY_LABELS[request.category] || String(request.category);
+        header.appendChild(title);
+        if (
+          canReviewMetadata && request.kind === 'metadata' && request.state === 'OPEN' &&
+          Number.isInteger(request.requestId) && request.requestId > 0
+        ) {
+          const actions = document.createElement('div');
+          actions.className = 'pg-curation-request-actions';
+          const approve = document.createElement('button');
+          approve.type = 'button';
+          approve.className = 'btn btn-sm btn-success';
+          approve.textContent = 'Approve';
+          approve.addEventListener('click', () => {
+            void reviewMetadataRequest(request, reviewContext.media, 'RESOLVED', section);
+          });
+          const decline = document.createElement('button');
+          decline.type = 'button';
+          decline.className = 'btn btn-sm btn-outline-danger';
+          decline.textContent = 'Decline';
+          decline.addEventListener('click', () => {
+            void reviewMetadataRequest(request, reviewContext.media, 'DISMISSED', section);
+          });
+          actions.append(approve, decline);
+          header.appendChild(actions);
+        }
         const metadata = document.createElement('div');
         const date = new Date(request.requestedAt);
         metadata.textContent = `${request.requesterName} · ${
           Number.isNaN(date.getTime()) ? request.requestedAt : date.toLocaleString()
         } · ${request.state}`;
-        section.append(title, metadata);
+        section.append(header, metadata);
         if (request.comment) {
           const comment = document.createElement('p');
           comment.textContent = request.comment;
@@ -602,7 +685,10 @@
           headers: {Accept: 'application/json'}
         }
       ));
-      renderRequestDetails(result?.requests || []);
+      renderRequestDetails(result?.requests || [], {
+        media: result?.media,
+        canModerate: result?.canModerate
+      });
     } catch (error) {
       console.error(`[${EXTENSION_ID}] Could not load curation request details.`, error);
       renderRequestDetails([]);

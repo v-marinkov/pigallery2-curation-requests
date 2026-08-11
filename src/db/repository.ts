@@ -17,7 +17,7 @@ import {
 import {normalizeRelativeMediaPath} from '../security/paths';
 import {CurationDatabase} from './database';
 
-export const CURATION_REPOSITORY_API_VERSION = 5;
+export const CURATION_REPOSITORY_API_VERSION = 6;
 
 type ItemRow = {
   id: number;
@@ -410,6 +410,52 @@ export class CurationRepository {
     })();
   }
 
+  closeMetadataRequest(
+    relativePathInput: string,
+    requestId: number,
+    actor: Actor,
+    outcome: 'RESOLVED' | 'DISMISSED',
+    resolutionComment?: string | null
+  ): MetadataRequest {
+    const relativePath = normalizeRelativeMediaPath(relativePathInput);
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      throw new Error('A valid metadata request ID is required');
+    }
+    if (!['RESOLVED', 'DISMISSED'].includes(outcome)) {
+      throw new Error('Metadata request outcome must be RESOLVED or DISMISSED');
+    }
+    const comment = this.normalizeComment(resolutionComment);
+    return this.db.transaction(() => {
+      const request = this.db.prepare(`
+        ${METADATA_REQUEST_SELECT}
+         WHERE mr.id = ? AND cm.relative_path = ? AND mr.state = 'OPEN'
+      `).get(requestId, relativePath) as MetadataRequest | undefined;
+      if (!request) {
+        throw new Error('This photo has no matching open metadata correction request');
+      }
+      const timestamp = this.now();
+      this.db.prepare(`
+        UPDATE metadata_requests
+           SET state = ?, updated_at = ?,
+               closed_by_user_id = ?, closed_by_user_name = ?, closed_at = ?,
+               resolution_comment = ?
+         WHERE id = ? AND state = 'OPEN'
+      `).run(outcome, timestamp, actor.id, actor.name, timestamp, comment, requestId);
+      this.addMetadataEvent(requestId, outcome, actor, timestamp, {comment, granular: true});
+      return this.db.prepare(`${METADATA_REQUEST_SELECT} WHERE mr.id = ?`).get(requestId) as MetadataRequest;
+    })();
+  }
+
+  getRelativePathForToken(itemToken: string): string | null {
+    if (!/^[a-f0-9]{32}$/.test(itemToken)) {
+      return null;
+    }
+    const media = this.db.prepare(
+      'SELECT relative_path AS relativePath FROM curation_media WHERE public_token = ?'
+    ).get(itemToken) as {relativePath: string} | undefined;
+    return media?.relativePath || null;
+  }
+
   getClientRequestDetails(
     itemToken: string,
     actor: Actor,
@@ -418,14 +464,12 @@ export class CurationRepository {
     if (!/^[a-f0-9]{32}$/.test(itemToken)) {
       return [];
     }
-    const media = this.db.prepare(
-      'SELECT relative_path AS relativePath FROM curation_media WHERE public_token = ?'
-    ).get(itemToken) as {relativePath: string} | undefined;
-    if (!media) {
+    const relativePath = this.getRelativePathForToken(itemToken);
+    if (!relativePath) {
       return [];
     }
     const details: ClientRequestDetail[] = [];
-    const deletionInfo = this.getInfo(media.relativePath);
+    const deletionInfo = this.getInfo(relativePath);
     if (deletionInfo && ['PENDING', 'APPROVED', 'ERROR'].includes(deletionInfo.item.state)) {
       for (const request of deletionInfo.requests) {
         if (
@@ -447,12 +491,13 @@ export class CurationRepository {
     }
     const metadata = this.db.prepare(
       `${METADATA_REQUEST_SELECT} WHERE cm.relative_path = ? AND mr.state = 'OPEN' ORDER BY mr.requested_at, mr.id`
-    ).all(media.relativePath) as MetadataRequest[];
+    ).all(relativePath) as MetadataRequest[];
     for (const request of metadata) {
       if (!administrator && request.requestedByUserId !== actor.id) {
         continue;
       }
       details.push({
+        ...(administrator ? {requestId: request.id} : {}),
         kind: 'metadata',
         category: request.category,
         state: request.state,

@@ -161,7 +161,7 @@ const cancelOwnRequestIcon = {
 };
 
 export const init = async (extension: IExtensionObject<CurationConfig>): Promise<void> => {
-  if (CURATION_REPOSITORY_API_VERSION !== 5) {
+  if (CURATION_REPOSITORY_API_VERSION !== 6) {
     throw new Error(
       'Incompatible curation-request files: replace server.js and the complete compiled src directory together'
     );
@@ -192,15 +192,64 @@ export const init = async (extension: IExtensionObject<CurationConfig>): Promise
     ['request-details/:token'], UserRoles.User,
     (params?: ParamsDictionary, _body?: unknown, user?: UserDTO) => {
       if (!user || !params?.token) {
-        return {requests: []};
+        return {requests: [], media: null, canModerate: false};
       }
+      const administrator = isAdministrator(user);
       return {
         requests: curationRepository!.getClientRequestDetails(
           params.token,
           actorFromUser(user),
-          isAdministrator(user)
-        )
+          administrator
+        ),
+        media: administrator
+          ? curationRepository!.getRelativePathForToken(params.token)
+          : null,
+        canModerate: administrator
       };
+    }
+  );
+
+  addAdministratorGuard(
+    extension,
+    'review-metadata-request',
+    'review',
+    'an individual metadata request'
+  );
+  extension.RESTApi.post.mediaJsonResponse(
+    ['review-metadata-request'],
+    UserRoles.User,
+    true,
+    async (_params, body, user, media, mediaRepository) => {
+      if (!isAdministrator(user)) {
+        extension.Logger.warn(
+          `${user.name}: blocked unauthorized attempt to review an individual metadata request`
+        );
+        return;
+      }
+      const requestId = Number(body?.data?.customFields?.requestId);
+      const outcomeValue = body?.data?.customFields?.outcome;
+      if (!Number.isInteger(requestId) || requestId <= 0) {
+        throw new Error('A valid metadata request ID is required');
+      }
+      if (outcomeValue !== 'RESOLVED' && outcomeValue !== 'DISMISSED') {
+        throw new Error('Metadata request outcome must be RESOLVED or DISMISSED');
+      }
+      const mediaPaths = getMediaPaths(extension, media);
+      const result = curationRepository!.closeMetadataRequest(
+        mediaPaths.relativePath,
+        requestId,
+        actorFromUser(user),
+        outcomeValue
+      );
+      await saveCurationProjection(
+        media,
+        mediaRepository,
+        curationRepository!.getProjection(mediaPaths.relativePath)
+      );
+      extension.Logger.info(
+        `${user.name}: ${outcomeValue.toLocaleLowerCase()} metadata request ${requestId} for ${mediaPaths.relativePath}`
+      );
+      return {requestId: result.id, state: result.state};
     }
   );
 
