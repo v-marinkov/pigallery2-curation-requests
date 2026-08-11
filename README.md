@@ -1,5 +1,8 @@
 # PiGallery2 Curation Requests
 
+> [!IMPORTANT]
+> **Development disclosure:** This extension was vibe-coded using **ChatGPT 5.6 Sol High**. I developed it for—and actively use it with—my personal family photo library. Its design and implementation followed strict data-preservation guidelines: PiGallery2 retains read-only access to the photo library, curation state is stored separately, and deletion is dry-run by default and requires explicit execution with path and fingerprint checks. Tested backups remain essential.
+
 A community extension and host-side toolset for moderated photo curation in PiGallery2. Family members can report deletion and metadata problems, administrators can review them, and a separate defensive host command performs only approved deletions.
 
 PiGallery2 keeps read-only access to the canonical photo library.
