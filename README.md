@@ -105,7 +105,7 @@ Resolving or dismissing metadata currently closes every open non-deletion reques
 
 Deletion is an exclusive request choice for each requester. Selecting it clears and disables the metadata categories in the popup, and the server ignores metadata flags in any request that also contains deletion. A user who owns an active deletion request cannot add metadata requests for that photo, even by bypassing the frontend; other users remain free to report metadata problems. Therefore metadata and deletion moderation pairs may coexist for administrators when different users have submitted the two kinds of request; colored outlines distinguish them.
 
-Granular metadata **Approve** closes exactly that request as `RESOLVED`; granular **Decline** closes it as `DISMISSED`. Each action is bound to the authenticated administrator, opaque photo token, PiGallery media path, request ID, and current `OPEN` state in one SQLite transaction. Deletion requests remain file-level decisions and use the separate red controls. Once deletion is `APPROVED`, metadata moderation controls are hidden for that photo.
+Granular metadata **Approve** closes exactly that request as `RESOLVED`; granular **Decline** closes it as `DISMISSED`. Each action is bound to the authenticated administrator, opaque photo token, PiGallery media path, request ID, and current `OPEN` state in one SQLite transaction. Deletion rows also expose the existing red approval/decline operations in the details dialog. Because deletion is a file-level workflow, either operation applies to the photo-level deletion item for every requester, and approval still calculates a fresh fingerprint. Once deletion is `APPROVED`, metadata moderation controls are hidden for that photo.
 
 ## Curation mode
 

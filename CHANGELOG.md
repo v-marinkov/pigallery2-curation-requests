@@ -13,6 +13,7 @@
 - Grouped metadata choices above deletion, added per-user deletion ownership visibility, moved the details badge, and removed repeated confirmation headings.
 - Restored concurrent admin moderation controls, visually separated their pairs, and matched the details button to the circular hover treatment.
 - Added authenticated per-request metadata approval/decline in the details dialog and hid metadata moderation after deletion approval.
+- Exposed the existing photo-level deletion approval/decline operations alongside deletion rows in the details dialog.
 - Extended the host review report to include metadata correction requests while keeping the deletion executor deletion-only.
 - Preserved the existing deletion schema, approval fingerprints, queue locking, and defensive executor.
 

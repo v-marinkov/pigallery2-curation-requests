@@ -85,6 +85,15 @@ class FrontendAssetTests(unittest.TestCase):
         self.assertIn("!deletionApproved", source)
         self.assertIn(".photo-container.pg-curation-delete-approved", source)
 
+    def test_admin_can_reach_photo_level_deletion_controls_from_deletion_rows(self):
+        source = FRONTEND_ASSET.read_text(encoding="utf-8")
+
+        self.assertIn("const reviewDeletionRequest", source)
+        self.assertIn("approving ? 'approve-deletion' : 'decline-deletion'", source)
+        self.assertIn("request.kind === 'deletion'", source)
+        self.assertIn("['PENDING', 'APPROVED', 'ERROR'].includes(request.state)", source)
+        self.assertIn("photo-level deletion workflow for every requester", source)
+
 
 if __name__ == "__main__":
     unittest.main()

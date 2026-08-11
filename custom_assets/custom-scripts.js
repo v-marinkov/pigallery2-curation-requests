@@ -608,6 +608,49 @@
     }
   };
 
+  const reviewDeletionRequest = async (request, mediaPath, outcome, section) => {
+    const approving = outcome === 'APPROVED';
+    const verb = approving ? 'Approve' : 'Decline';
+    const consequence = approving
+      ? 'This approves the photo for the host-side deletion queue for every requester.'
+      : 'This declines the photo-level deletion workflow for every requester.';
+    if (!globalThis.confirm(`${verb} deletion requested by ${request.requesterName}?\n\n${consequence}`)) {
+      return;
+    }
+    const buttons = section.querySelectorAll('.pg-curation-request-actions button');
+    buttons.forEach(button => { button.disabled = true; });
+    let status = section.querySelector('.pg-curation-request-action-status');
+    if (!status) {
+      status = document.createElement('div');
+      status.className = 'pg-curation-request-action-status';
+      section.appendChild(status);
+    }
+    status.classList.remove('text-danger');
+    status.textContent = `${verb} in progress…`;
+    try {
+      await unwrapResponse(await fetch(
+        extensionEndpoint(approving ? 'approve-deletion' : 'decline-deletion'),
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          cache: 'no-store',
+          headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+          body: JSON.stringify({
+            media: mediaPath,
+            data: {customFields: {confirm: true}}
+          })
+        }
+      ));
+      status.textContent = `${verb}d. Refreshing…`;
+      globalThis.location.reload();
+    } catch (error) {
+      console.error(`[${EXTENSION_ID}] Could not review deletion request.`, error);
+      status.classList.add('text-danger');
+      status.textContent = `${verb} failed: ${error.message || error}`;
+      buttons.forEach(button => { button.disabled = false; });
+    }
+  };
+
   const renderRequestDetails = (requests, reviewContext = {}) => {
     const dialog = ensureDetailsDialog();
     const body = dialog.querySelector('.pg-curation-dialog-body');
@@ -623,6 +666,8 @@
       const canReviewMetadata = reviewContext.canModerate === true &&
         typeof reviewContext.media === 'string' && reviewContext.media.length > 0 &&
         !deletionApproved;
+      const canReviewDeletion = reviewContext.canModerate === true &&
+        typeof reviewContext.media === 'string' && reviewContext.media.length > 0;
       for (const request of requests) {
         const section = document.createElement('section');
         section.className = 'pg-curation-request-detail';
@@ -652,6 +697,31 @@
             void reviewMetadataRequest(request, reviewContext.media, 'DISMISSED', section);
           });
           actions.append(approve, decline);
+          header.appendChild(actions);
+        } else if (
+          canReviewDeletion && request.kind === 'deletion' &&
+          ['PENDING', 'APPROVED', 'ERROR'].includes(request.state)
+        ) {
+          const actions = document.createElement('div');
+          actions.className = 'pg-curation-request-actions';
+          if (request.state === 'PENDING') {
+            const approve = document.createElement('button');
+            approve.type = 'button';
+            approve.className = 'btn btn-sm btn-danger';
+            approve.textContent = 'Approve';
+            approve.addEventListener('click', () => {
+              void reviewDeletionRequest(request, reviewContext.media, 'APPROVED', section);
+            });
+            actions.appendChild(approve);
+          }
+          const decline = document.createElement('button');
+          decline.type = 'button';
+          decline.className = 'btn btn-sm btn-outline-danger';
+          decline.textContent = 'Decline';
+          decline.addEventListener('click', () => {
+            void reviewDeletionRequest(request, reviewContext.media, 'DECLINED', section);
+          });
+          actions.appendChild(decline);
           header.appendChild(actions);
         }
         const metadata = document.createElement('div');
