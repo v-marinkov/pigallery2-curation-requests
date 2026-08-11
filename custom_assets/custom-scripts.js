@@ -142,6 +142,12 @@
       display: none !important;
     }
 
+    /* Approval locks the whole photo against new requests, regardless of who
+       requested or approved the deletion. */
+    .photo-container.pg-curation-delete-approved button[title="Request curation"] {
+      display: none !important;
+    }
+
     .photo-container button[title="Approve deletion (admin only)"] {
       color: #fff !important;
       border-color: var(--bs-danger, #dc3545) !important;
@@ -799,7 +805,9 @@
           actions.className = 'pg-curation-request-actions';
           const advance = document.createElement('button');
           advance.type = 'button';
-          advance.className = 'btn btn-sm btn-success';
+          advance.className = request.state === 'APPROVED'
+            ? 'btn btn-sm btn-success'
+            : 'btn btn-sm btn-primary';
           advance.textContent = request.state === 'APPROVED' ? 'Mark done' : 'Approve';
           advance.addEventListener('click', () => {
             void reviewMetadataRequest(

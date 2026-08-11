@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CurationRepository = exports.CURATION_REPOSITORY_API_VERSION = void 0;
 const domain_1 = require("../domain");
 const paths_1 = require("../security/paths");
-exports.CURATION_REPOSITORY_API_VERSION = 9;
+exports.CURATION_REPOSITORY_API_VERSION = 10;
 const ITEM_SELECT = `
   SELECT id,
          relative_path AS relativePath,
@@ -238,6 +238,9 @@ class CurationRepository {
         }
         const comment = this.normalizeComment(input.comment);
         return this.db.transaction(() => {
+            if (this.getState(relativePath) === 'APPROVED') {
+                throw new Error('New curation requests are locked while deletion is approved for this photo');
+            }
             if (this.hasActiveDeletionRequest(relativePath, input.actor.id)) {
                 throw new Error('Metadata corrections cannot be requested while your deletion request is active');
             }

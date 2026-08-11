@@ -125,6 +125,16 @@ class FrontendAssetTests(unittest.TestCase):
         self.assertIn("['OPEN', 'APPROVED'].includes(request.state)", source)
         self.assertIn("request.state === 'APPROVED' ? 'Mark done' : 'Approve'", source)
         self.assertIn("request.state === 'APPROVED' ? 'RESOLVED' : 'APPROVED'", source)
+        self.assertIn("? 'btn btn-sm btn-success'", source)
+        self.assertIn(": 'btn btn-sm btn-primary'", source)
+
+    def test_approved_deletion_hides_the_request_pencil_for_everyone(self):
+        source = FRONTEND_ASSET.read_text(encoding="utf-8")
+
+        self.assertIn(
+            '.photo-container.pg-curation-delete-approved button[title="Request curation"]',
+            source,
+        )
 
     def test_details_dialog_uses_the_native_bootstrap_close_button(self):
         source = FRONTEND_ASSET.read_text(encoding="utf-8")

@@ -19,6 +19,8 @@
 - Renamed the per-row owner action to Cancel and hid that redundant action from administrators.
 - Added explicit pending/approved metadata projection tags and saved searches.
 - Replaced the batch Resolve/Dismiss pair with state-dependent Approve all/Mark all done and Decline all controls.
+- Made granular and batch approval consistently blue while retaining green for Mark done.
+- Locked approved-deletion photos against all new metadata and deletion requests at both repository and frontend levels.
 - Extended the host review report to include metadata correction requests while keeping the deletion executor deletion-only.
 - Preserved the existing deletion schema, approval fingerprints, queue locking, and defensive executor.
 

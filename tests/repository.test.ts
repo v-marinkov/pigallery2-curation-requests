@@ -202,28 +202,28 @@ describe('CurationRepository', () => {
     assert.equal(withdrawn.remainingRequesters, 1);
 
     repository.requestMetadata({
-      relativePath: 'photo.jpg', mediaType: 'photo', categories: ['faces', 'tags'],
+      relativePath: 'metadata.jpg', mediaType: 'photo', categories: ['faces', 'tags'],
       actor: {id: '1', name: 'anna'}
     });
     const details = repository.getClientRequestDetails(
-      repository.getProjection('photo.jpg')!.itemToken!, {id: '1', name: 'anna'}, false
+      repository.getProjection('metadata.jpg')!.itemToken!, {id: '1', name: 'anna'}, false
     );
     assert.ok(details.every(detail => Number.isInteger(detail.requestId)));
     const faces = details.find(detail => detail.category === 'faces')!;
     const tags = details.find(detail => detail.category === 'tags')!;
     assert.throws(
       () => repository.withdrawOwnMetadataRequest(
-        'photo.jpg', tags.requestId!, {id: '2', name: 'bob'}
+        'metadata.jpg', tags.requestId!, {id: '2', name: 'bob'}
       ),
       /owned by this user/
     );
     assert.equal(
       repository.withdrawOwnMetadataRequest(
-        'photo.jpg', faces.requestId!, {id: '1', name: 'anna'}
+        'metadata.jpg', faces.requestId!, {id: '1', name: 'anna'}
       ).state,
       'WITHDRAWN'
     );
-    assert.deepEqual(repository.getProjection('photo.jpg')?.metadataCategories, ['tags']);
+    assert.deepEqual(repository.getProjection('metadata.jpg')?.metadataCategories, ['tags']);
     repository.close();
   });
 
@@ -378,6 +378,31 @@ describe('CurationRepository', () => {
       {created: ['tags'], existing: []}
     );
     assert.deepEqual(repository.getProjection('photo.jpg')?.metadataCategories, ['tags']);
+    repository.close();
+  });
+
+  it('locks all new curation requests while deletion is approved', () => {
+    const repository = createRepository();
+    repository.requestDeletion({
+      relativePath: 'photo.jpg', mediaType: 'photo', fingerprint,
+      actor: {id: '1', name: 'anna'}
+    });
+    repository.approve('photo.jpg', {id: '9', name: 'admin'}, fingerprint);
+
+    assert.throws(
+      () => repository.requestMetadata({
+        relativePath: 'photo.jpg', mediaType: 'photo', categories: ['tags'],
+        actor: {id: '9', name: 'admin'}
+      }),
+      /locked while deletion is approved/
+    );
+    assert.throws(
+      () => repository.requestDeletion({
+        relativePath: 'photo.jpg', mediaType: 'photo', fingerprint,
+        actor: {id: '2', name: 'bob'}
+      }),
+      /cannot be added while item is APPROVED/
+    );
     repository.close();
   });
 

@@ -216,6 +216,12 @@ const server_1 = require("../server");
         await buttons.get('Approve deletion (admin only)').callback({}, { data: { customFields: { confirm: true } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
         strict_1.default.ok(media.metadata.keywords.includes('pg-curation:delete-approved'));
         strict_1.default.ok(!media.metadata.keywords.some((keyword) => keyword.startsWith('pg-curation:category:')));
+        await buttons.get('Request curation').callback({}, { data: { customFields: { tags: true, comment: 'must be blocked' } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
+        await buttons.get('Request curation').callback({}, { data: { customFields: { deletion: true, comment: 'also blocked' } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
+        const lockedDatabase = new better_sqlite3_1.default(dbPath, { readonly: true });
+        strict_1.default.equal(lockedDatabase.prepare('SELECT COUNT(*) AS count FROM metadata_requests').get().count, 0);
+        strict_1.default.equal(lockedDatabase.prepare('SELECT COUNT(*) AS count FROM deletion_requests').get().count, 1);
+        lockedDatabase.close();
         const reindexed = await metadataAfter({
             input: [photoPath],
             output: { keywords: ['family'], size: { width: 1, height: 1 }, fileSize: 1, creationDate: 0 }
@@ -260,7 +266,7 @@ const server_1 = require("../server");
         strict_1.default.ok(media.metadata.keywords.includes('pg-curation:metadata-approved'));
         await buttons.get('Mark all metadata requests done (admin only)').callback({}, { data: { customFields: { confirm: true, resolutionComment: 'XMP fixed' } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
         strict_1.default.deepEqual(media.metadata.keywords, ['family']);
-        strict_1.default.equal(saved.length, 8);
+        strict_1.default.equal(saved.length, 10);
         strict_1.default.ok(warnings.some(message => message.includes('blocked unauthorized attempt')));
     }
     finally {

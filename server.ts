@@ -161,7 +161,7 @@ const cancelOwnRequestIcon = {
 };
 
 export const init = async (extension: IExtensionObject<CurationConfig>): Promise<void> => {
-  if (CURATION_REPOSITORY_API_VERSION !== 9) {
+  if (CURATION_REPOSITORY_API_VERSION !== 10) {
     throw new Error(
       'Incompatible curation-request files: replace server.js and the complete compiled src directory together'
     );
@@ -355,6 +355,17 @@ export const init = async (extension: IExtensionObject<CurationConfig>): Promise
     const mediaPaths = getMediaPaths(extension, media);
     const actor = actorFromUser(user);
     const comment = body?.data?.customFields?.comment;
+    if (curationRepository!.getState(mediaPaths.relativePath) === 'APPROVED') {
+      extension.Logger.warn(
+        `${user.name}: blocked new curation request while deletion is approved for ${mediaPaths.relativePath}`
+      );
+      await saveCurationProjection(
+        media,
+        mediaRepository,
+        curationRepository!.getProjection(mediaPaths.relativePath)
+      );
+      return;
+    }
     if (
       selected.metadata.length > 0 &&
       curationRepository!.hasActiveDeletionRequest(mediaPaths.relativePath, actor.id)

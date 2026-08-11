@@ -94,6 +94,7 @@ The browser JavaScript is presentation logic. Removing or changing it cannot byp
 All curation buttons are hidden while Curation mode is disabled. When enabled:
 
 - authorized requesters see **Request curation**, except on photos for which that same user has an active deletion request;
+- once deletion is approved, the whole photo is locked against every new curation request—including requests from administrators—until the photo-level deletion is declined or its final requester cancels it;
 - an owner with active requests sees **Cancel my curation requests**;
 - administrators see **Approve all metadata requests** while any request is pending; after all are approved it becomes the visually distinct **Mark all metadata requests done** action;
 - administrators see **Decline all metadata requests** while metadata work remains active, except after deletion has been approved;

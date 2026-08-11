@@ -199,16 +199,16 @@ const fingerprint = {
         strict_1.default.equal(withdrawn.item?.state, 'APPROVED');
         strict_1.default.equal(withdrawn.remainingRequesters, 1);
         repository.requestMetadata({
-            relativePath: 'photo.jpg', mediaType: 'photo', categories: ['faces', 'tags'],
+            relativePath: 'metadata.jpg', mediaType: 'photo', categories: ['faces', 'tags'],
             actor: { id: '1', name: 'anna' }
         });
-        const details = repository.getClientRequestDetails(repository.getProjection('photo.jpg').itemToken, { id: '1', name: 'anna' }, false);
+        const details = repository.getClientRequestDetails(repository.getProjection('metadata.jpg').itemToken, { id: '1', name: 'anna' }, false);
         strict_1.default.ok(details.every(detail => Number.isInteger(detail.requestId)));
         const faces = details.find(detail => detail.category === 'faces');
         const tags = details.find(detail => detail.category === 'tags');
-        strict_1.default.throws(() => repository.withdrawOwnMetadataRequest('photo.jpg', tags.requestId, { id: '2', name: 'bob' }), /owned by this user/);
-        strict_1.default.equal(repository.withdrawOwnMetadataRequest('photo.jpg', faces.requestId, { id: '1', name: 'anna' }).state, 'WITHDRAWN');
-        strict_1.default.deepEqual(repository.getProjection('photo.jpg')?.metadataCategories, ['tags']);
+        strict_1.default.throws(() => repository.withdrawOwnMetadataRequest('metadata.jpg', tags.requestId, { id: '2', name: 'bob' }), /owned by this user/);
+        strict_1.default.equal(repository.withdrawOwnMetadataRequest('metadata.jpg', faces.requestId, { id: '1', name: 'anna' }).state, 'WITHDRAWN');
+        strict_1.default.deepEqual(repository.getProjection('metadata.jpg')?.metadataCategories, ['tags']);
         repository.close();
     });
     (0, node_test_1.it)('stores independent metadata categories and exposes comments only to owners or administrators', () => {
@@ -296,6 +296,23 @@ const fingerprint = {
             actor: { id: '2', name: 'bob' }
         }), { created: ['tags'], existing: [] });
         strict_1.default.deepEqual(repository.getProjection('photo.jpg')?.metadataCategories, ['tags']);
+        repository.close();
+    });
+    (0, node_test_1.it)('locks all new curation requests while deletion is approved', () => {
+        const repository = createRepository();
+        repository.requestDeletion({
+            relativePath: 'photo.jpg', mediaType: 'photo', fingerprint,
+            actor: { id: '1', name: 'anna' }
+        });
+        repository.approve('photo.jpg', { id: '9', name: 'admin' }, fingerprint);
+        strict_1.default.throws(() => repository.requestMetadata({
+            relativePath: 'photo.jpg', mediaType: 'photo', categories: ['tags'],
+            actor: { id: '9', name: 'admin' }
+        }), /locked while deletion is approved/);
+        strict_1.default.throws(() => repository.requestDeletion({
+            relativePath: 'photo.jpg', mediaType: 'photo', fingerprint,
+            actor: { id: '2', name: 'bob' }
+        }), /cannot be added while item is APPROVED/);
         repository.close();
     });
     (0, node_test_1.it)('withdraws only the owners requests and lets administrators resolve what remains', () => {

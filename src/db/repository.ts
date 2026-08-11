@@ -17,7 +17,7 @@ import {
 import {normalizeRelativeMediaPath} from '../security/paths';
 import {CurationDatabase} from './database';
 
-export const CURATION_REPOSITORY_API_VERSION = 9;
+export const CURATION_REPOSITORY_API_VERSION = 10;
 
 type ItemRow = {
   id: number;
@@ -328,6 +328,9 @@ export class CurationRepository {
     }
     const comment = this.normalizeComment(input.comment);
     return this.db.transaction(() => {
+      if (this.getState(relativePath) === 'APPROVED') {
+        throw new Error('New curation requests are locked while deletion is approved for this photo');
+      }
       if (this.hasActiveDeletionRequest(relativePath, input.actor.id)) {
         throw new Error('Metadata corrections cannot be requested while your deletion request is active');
       }

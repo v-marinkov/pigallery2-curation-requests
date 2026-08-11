@@ -260,6 +260,25 @@ it('executes general curation and deletion workflows without changing the photo'
     assert.ok(media.metadata.keywords.includes('pg-curation:delete-approved'));
     assert.ok(!media.metadata.keywords.some((keyword: string) => keyword.startsWith('pg-curation:category:')));
 
+    await buttons.get('Request curation')!.callback(
+      {}, {data: {customFields: {tags: true, comment: 'must be blocked'}}},
+      {id: 9, name: 'admin', role: UserRoles.Admin}, media, mediaRepository
+    );
+    await buttons.get('Request curation')!.callback(
+      {}, {data: {customFields: {deletion: true, comment: 'also blocked'}}},
+      {id: 9, name: 'admin', role: UserRoles.Admin}, media, mediaRepository
+    );
+    const lockedDatabase = new Database(dbPath, {readonly: true});
+    assert.equal(
+      (lockedDatabase.prepare('SELECT COUNT(*) AS count FROM metadata_requests').get() as {count: number}).count,
+      0
+    );
+    assert.equal(
+      (lockedDatabase.prepare('SELECT COUNT(*) AS count FROM deletion_requests').get() as {count: number}).count,
+      1
+    );
+    lockedDatabase.close();
+
     const reindexed = await metadataAfter!({
       input: [photoPath],
       output: {keywords: ['family'], size: {width: 1, height: 1}, fileSize: 1, creationDate: 0}
@@ -352,7 +371,7 @@ it('executes general curation and deletion workflows without changing the photo'
       {id: 9, name: 'admin', role: UserRoles.Admin}, media, mediaRepository
     );
     assert.deepEqual(media.metadata.keywords, ['family']);
-    assert.equal(saved.length, 8);
+    assert.equal(saved.length, 10);
     assert.ok(warnings.some(message => message.includes('blocked unauthorized attempt')));
   } finally {
     await cleanUp();

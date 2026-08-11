@@ -113,7 +113,7 @@ const cancelOwnRequestIcon = {
     items: '<path d="M48 224H0V56C0 42.7 10.7 32 24 32s24 10.7 24 24v62.1C91.2 45.7 170.1 0 256 0c141.4 0 256 114.6 256 256S397.4 512 256 512c-81.1 0-155.2-37.8-202.1-99.6-8-10.6-5.9-25.6 4.7-33.6s25.6-5.9 33.6 4.7C130.3 433.7 190.2 464 256 464c114.9 0 208-93.1 208-208S370.9 48 256 48c-72 0-138.7 37.5-176.6 98.6L144 144c13.3 0 24 10.7 24 24s-10.7 24-24 24H48v32z"/>'
 };
 const init = async (extension) => {
-    if (repository_1.CURATION_REPOSITORY_API_VERSION !== 9) {
+    if (repository_1.CURATION_REPOSITORY_API_VERSION !== 10) {
         throw new Error('Incompatible curation-request files: replace server.js and the complete compiled src directory together');
     }
     const config = extension.config.getConfig();
@@ -235,6 +235,11 @@ const init = async (extension) => {
         const mediaPaths = (0, adapter_1.getMediaPaths)(extension, media);
         const actor = actorFromUser(user);
         const comment = body?.data?.customFields?.comment;
+        if (curationRepository.getState(mediaPaths.relativePath) === 'APPROVED') {
+            extension.Logger.warn(`${user.name}: blocked new curation request while deletion is approved for ${mediaPaths.relativePath}`);
+            await (0, adapter_1.saveCurationProjection)(media, mediaRepository, curationRepository.getProjection(mediaPaths.relativePath));
+            return;
+        }
         if (selected.metadata.length > 0 &&
             curationRepository.hasActiveDeletionRequest(mediaPaths.relativePath, actor.id)) {
             extension.Logger.warn(`${user.name}: ignored metadata request while their deletion request is active for ${mediaPaths.relativePath}`);
