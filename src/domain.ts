@@ -108,6 +108,9 @@ export interface MetadataRequest {
   requestedAt: string;
   comment: string | null;
   updatedAt: string;
+  approvedByUserId: string | null;
+  approvedByUserName: string | null;
+  approvedAt: string | null;
   closedByUserId: string | null;
   closedByUserName: string | null;
   closedAt: string | null;
@@ -118,7 +121,7 @@ export interface ClientRequestDetail {
   requestId?: number;
   kind: 'deletion' | 'metadata';
   category: 'deletion' | MetadataCategory;
-  state: DeletionState | MetadataRequestState;
+  state: DeletionState | MetadataRequestState | 'APPROVED';
   requesterName: string;
   requestedAt: string;
   comment: string | null;

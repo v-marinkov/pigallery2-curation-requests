@@ -245,7 +245,7 @@ const fingerprint = {
         strict_1.default.ok(adminDetails.every(detail => Number.isInteger(detail.requestId)));
         repository.close();
     });
-    (0, node_test_1.it)('resolves or dismisses exactly one validated metadata request', () => {
+    (0, node_test_1.it)('approves metadata as outstanding work, then resolves or dismisses it', () => {
         const repository = createRepository();
         repository.requestMetadata({
             relativePath: 'photo.jpg', mediaType: 'photo', categories: ['faces', 'location'],
@@ -255,10 +255,29 @@ const fingerprint = {
         const details = repository.getClientRequestDetails(projection.itemToken, { id: '9', name: 'admin' }, true);
         const faces = details.find(detail => detail.category === 'faces');
         const location = details.find(detail => detail.category === 'location');
+        strict_1.default.equal(repository.closeMetadataRequest('photo.jpg', faces.requestId, { id: '9', name: 'admin' }, 'APPROVED').approvedByUserName, 'admin');
+        strict_1.default.deepEqual(repository.getProjection('photo.jpg')?.metadataCategories, ['faces', 'location']);
+        const approvedDetails = repository.getClientRequestDetails(projection.itemToken, { id: '9', name: 'admin' }, true);
+        strict_1.default.equal(approvedDetails.find(detail => detail.requestId === faces.requestId)?.state, 'APPROVED');
         strict_1.default.equal(repository.closeMetadataRequest('photo.jpg', faces.requestId, { id: '9', name: 'admin' }, 'RESOLVED').state, 'RESOLVED');
         strict_1.default.deepEqual(repository.getProjection('photo.jpg')?.metadataCategories, ['location']);
         strict_1.default.throws(() => repository.closeMetadataRequest('other.jpg', location.requestId, { id: '9', name: 'admin' }, 'DISMISSED'), /no matching open metadata/);
         strict_1.default.equal(repository.closeMetadataRequest('photo.jpg', location.requestId, { id: '9', name: 'admin' }, 'DISMISSED').state, 'DISMISSED');
+        strict_1.default.equal(repository.getProjection('photo.jpg'), null);
+        repository.close();
+    });
+    (0, node_test_1.it)('lets an owner cancel approved metadata while hiding it from other users', () => {
+        const repository = createRepository();
+        repository.requestMetadata({
+            relativePath: 'photo.jpg', mediaType: 'photo', categories: ['tags'],
+            actor: { id: '1', name: 'anna' }
+        });
+        const projection = repository.getProjection('photo.jpg');
+        const request = repository.getClientRequestDetails(projection.itemToken, { id: '9', name: 'admin' }, true)[0];
+        repository.closeMetadataRequest('photo.jpg', request.requestId, { id: '9', name: 'admin' }, 'APPROVED');
+        strict_1.default.equal(repository.getClientRequestDetails(projection.itemToken, { id: '1', name: 'anna' }, false)[0].state, 'APPROVED');
+        strict_1.default.throws(() => repository.withdrawOwnMetadataRequest('photo.jpg', request.requestId, { id: '2', name: 'bob' }), /owned by this user/);
+        strict_1.default.equal(repository.withdrawOwnMetadataRequest('photo.jpg', request.requestId, { id: '1', name: 'anna' }).state, 'WITHDRAWN');
         strict_1.default.equal(repository.getProjection('photo.jpg'), null);
         repository.close();
     });
@@ -350,6 +369,36 @@ const fingerprint = {
     });
 });
 (0, node_test_1.describe)('database migrations', () => {
+    (0, node_test_1.it)('adds metadata approval tracking to a version-2 database without losing requests', () => {
+        const folder = (0, fs_1.mkdtempSync)(path.join((0, os_1.tmpdir)(), 'pg2-curation-metadata-migration-'));
+        const databasePath = path.join(folder, 'curation.sqlite');
+        const legacy = new better_sqlite3_1.default(databasePath);
+        legacy.exec(`
+      CREATE TABLE curation_schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+      INSERT INTO curation_schema_migrations VALUES (1, 'now'), (2, 'now');
+      CREATE TABLE metadata_requests (
+        id INTEGER PRIMARY KEY, curation_media_id INTEGER NOT NULL,
+        category TEXT NOT NULL, state TEXT NOT NULL,
+        requested_by_user_id TEXT NOT NULL, requested_by_user_name TEXT NOT NULL,
+        requested_at TEXT NOT NULL, comment TEXT, updated_at TEXT NOT NULL,
+        closed_by_user_id TEXT, closed_by_user_name TEXT, closed_at TEXT,
+        resolution_comment TEXT
+      );
+      INSERT INTO metadata_requests(
+        curation_media_id, category, state, requested_by_user_id,
+        requested_by_user_name, requested_at, comment, updated_at
+      ) VALUES (1, 'faces', 'OPEN', '1', 'anna', 'now', 'Keep me', 'now');
+    `);
+        legacy.close();
+        const migratedDatabase = new database_1.CurationDatabase(databasePath);
+        const row = migratedDatabase.connection.prepare(`
+      SELECT id, comment, approved_by_user_id AS approvedByUserId, approved_at AS approvedAt
+        FROM metadata_requests
+    `).get();
+        strict_1.default.deepEqual(row, { id: 1, comment: 'Keep me', approvedByUserId: null, approvedAt: null });
+        migratedDatabase.close();
+        (0, fs_1.rmSync)(folder, { recursive: true, force: true });
+    });
     (0, node_test_1.it)('upgrades a version-1 deletion database without losing its queue', () => {
         const folder = (0, fs_1.mkdtempSync)(path.join((0, os_1.tmpdir)(), 'pg2-curation-migration-'));
         const databasePath = path.join(folder, 'curation.sqlite');
@@ -389,6 +438,10 @@ const fingerprint = {
         strict_1.default.equal(projection?.state, 'PENDING');
         strict_1.default.deepEqual(projection?.requesterNames, ['anna']);
         strict_1.default.match(projection?.itemToken || '', /^[a-f0-9]{32}$/);
+        const migrated = new better_sqlite3_1.default(databasePath);
+        const columns = migrated.prepare('PRAGMA table_info(metadata_requests)').all();
+        strict_1.default.ok(columns.some(column => column.name === 'approved_at'));
+        migrated.close();
         repository.close();
         (0, fs_1.rmSync)(folder, { recursive: true, force: true });
     });

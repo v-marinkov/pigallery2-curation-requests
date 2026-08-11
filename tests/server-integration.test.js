@@ -237,12 +237,16 @@ const server_1 = require("../server");
         strict_1.default.equal(adminMetadataDetails.canModerate, true);
         strict_1.default.equal(adminMetadataDetails.media, '2024/Christmas/photo.jpg');
         const facesRequest = adminMetadataDetails.requests.find((request) => request.category === 'faces');
+        await mediaRoutes.get('review-metadata-request').callback({}, { data: { customFields: { requestId: facesRequest.requestId, outcome: 'APPROVED' } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
+        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:category:faces'));
+        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:category:other'));
+        const approvedMetadataDetails = jsonRoutes.get('request-details/:token')?.callback({ token: metadataToken }, undefined, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin });
+        strict_1.default.equal(approvedMetadataDetails.requests.find((request) => request.requestId === facesRequest.requestId).state, 'APPROVED');
         await mediaRoutes.get('review-metadata-request').callback({}, { data: { customFields: { requestId: facesRequest.requestId, outcome: 'RESOLVED' } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
         strict_1.default.ok(!media.metadata.keywords.includes('pg-curation:category:faces'));
-        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:category:other'));
         await buttons.get('Resolve metadata requests (admin only)').callback({}, { data: { customFields: { confirm: true, resolutionComment: 'XMP fixed' } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
         strict_1.default.deepEqual(media.metadata.keywords, ['family']);
-        strict_1.default.equal(saved.length, 6);
+        strict_1.default.equal(saved.length, 7);
         strict_1.default.ok(warnings.some(message => message.includes('blocked unauthorized attempt')));
     }
     finally {

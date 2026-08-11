@@ -271,7 +271,7 @@ describe('CurationRepository', () => {
     repository.close();
   });
 
-  it('resolves or dismisses exactly one validated metadata request', () => {
+  it('approves metadata as outstanding work, then resolves or dismisses it', () => {
     const repository = createRepository();
     repository.requestMetadata({
       relativePath: 'photo.jpg', mediaType: 'photo', categories: ['faces', 'location'],
@@ -284,6 +284,20 @@ describe('CurationRepository', () => {
     const faces = details.find(detail => detail.category === 'faces')!;
     const location = details.find(detail => detail.category === 'location')!;
 
+    assert.equal(
+      repository.closeMetadataRequest(
+        'photo.jpg', faces.requestId!, {id: '9', name: 'admin'}, 'APPROVED'
+      ).approvedByUserName,
+      'admin'
+    );
+    assert.deepEqual(repository.getProjection('photo.jpg')?.metadataCategories, ['faces', 'location']);
+    const approvedDetails = repository.getClientRequestDetails(
+      projection.itemToken!, {id: '9', name: 'admin'}, true
+    );
+    assert.equal(
+      approvedDetails.find(detail => detail.requestId === faces.requestId)?.state,
+      'APPROVED'
+    );
     assert.equal(
       repository.closeMetadataRequest(
         'photo.jpg', faces.requestId!, {id: '9', name: 'admin'}, 'RESOLVED'
@@ -302,6 +316,41 @@ describe('CurationRepository', () => {
         'photo.jpg', location.requestId!, {id: '9', name: 'admin'}, 'DISMISSED'
       ).state,
       'DISMISSED'
+    );
+    assert.equal(repository.getProjection('photo.jpg'), null);
+    repository.close();
+  });
+
+  it('lets an owner cancel approved metadata while hiding it from other users', () => {
+    const repository = createRepository();
+    repository.requestMetadata({
+      relativePath: 'photo.jpg', mediaType: 'photo', categories: ['tags'],
+      actor: {id: '1', name: 'anna'}
+    });
+    const projection = repository.getProjection('photo.jpg')!;
+    const request = repository.getClientRequestDetails(
+      projection.itemToken!, {id: '9', name: 'admin'}, true
+    )[0];
+    repository.closeMetadataRequest(
+      'photo.jpg', request.requestId!, {id: '9', name: 'admin'}, 'APPROVED'
+    );
+    assert.equal(
+      repository.getClientRequestDetails(
+        projection.itemToken!, {id: '1', name: 'anna'}, false
+      )[0].state,
+      'APPROVED'
+    );
+    assert.throws(
+      () => repository.withdrawOwnMetadataRequest(
+        'photo.jpg', request.requestId!, {id: '2', name: 'bob'}
+      ),
+      /owned by this user/
+    );
+    assert.equal(
+      repository.withdrawOwnMetadataRequest(
+        'photo.jpg', request.requestId!, {id: '1', name: 'anna'}
+      ).state,
+      'WITHDRAWN'
     );
     assert.equal(repository.getProjection('photo.jpg'), null);
     repository.close();
@@ -428,6 +477,38 @@ describe('security and synthetic metadata', () => {
 });
 
 describe('database migrations', () => {
+  it('adds metadata approval tracking to a version-2 database without losing requests', () => {
+    const folder = mkdtempSync(path.join(tmpdir(), 'pg2-curation-metadata-migration-'));
+    const databasePath = path.join(folder, 'curation.sqlite');
+    const legacy = new Database(databasePath);
+    legacy.exec(`
+      CREATE TABLE curation_schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL);
+      INSERT INTO curation_schema_migrations VALUES (1, 'now'), (2, 'now');
+      CREATE TABLE metadata_requests (
+        id INTEGER PRIMARY KEY, curation_media_id INTEGER NOT NULL,
+        category TEXT NOT NULL, state TEXT NOT NULL,
+        requested_by_user_id TEXT NOT NULL, requested_by_user_name TEXT NOT NULL,
+        requested_at TEXT NOT NULL, comment TEXT, updated_at TEXT NOT NULL,
+        closed_by_user_id TEXT, closed_by_user_name TEXT, closed_at TEXT,
+        resolution_comment TEXT
+      );
+      INSERT INTO metadata_requests(
+        curation_media_id, category, state, requested_by_user_id,
+        requested_by_user_name, requested_at, comment, updated_at
+      ) VALUES (1, 'faces', 'OPEN', '1', 'anna', 'now', 'Keep me', 'now');
+    `);
+    legacy.close();
+
+    const migratedDatabase = new CurationDatabase(databasePath);
+    const row = migratedDatabase.connection.prepare(`
+      SELECT id, comment, approved_by_user_id AS approvedByUserId, approved_at AS approvedAt
+        FROM metadata_requests
+    `).get() as {id: number; comment: string; approvedByUserId: string | null; approvedAt: string | null};
+    assert.deepEqual(row, {id: 1, comment: 'Keep me', approvedByUserId: null, approvedAt: null});
+    migratedDatabase.close();
+    rmSync(folder, {recursive: true, force: true});
+  });
+
   it('upgrades a version-1 deletion database without losing its queue', () => {
     const folder = mkdtempSync(path.join(tmpdir(), 'pg2-curation-migration-'));
     const databasePath = path.join(folder, 'curation.sqlite');
@@ -468,6 +549,10 @@ describe('database migrations', () => {
     assert.equal(projection?.state, 'PENDING');
     assert.deepEqual(projection?.requesterNames, ['anna']);
     assert.match(projection?.itemToken || '', /^[a-f0-9]{32}$/);
+    const migrated = new Database(databasePath);
+    const columns = migrated.prepare('PRAGMA table_info(metadata_requests)').all() as Array<{name: string}>;
+    assert.ok(columns.some(column => column.name === 'approved_at'));
+    migrated.close();
     repository.close();
     rmSync(folder, {recursive: true, force: true});
   });

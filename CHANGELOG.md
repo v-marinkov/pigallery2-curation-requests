@@ -15,6 +15,8 @@
 - Added authenticated per-request metadata approval/decline in the details dialog and hid metadata moderation after deletion approval.
 - Exposed the existing photo-level deletion approval/decline operations alongside deletion rows in the details dialog.
 - Added ownership-checked row cancellation, a native My curation requests search shortcut, and the Bootstrap modal close control.
+- Split metadata acceptance from completion: approved requests remain visible until marked done, declined, or cancelled by their owner.
+- Renamed the per-row owner action to Cancel and hid that redundant action from administrators.
 - Extended the host review report to include metadata correction requests while keeping the deletion executor deletion-only.
 - Preserved the existing deletion schema, approval fingerprints, queue locking, and defensive executor.
 

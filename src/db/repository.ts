@@ -17,7 +17,7 @@ import {
 import {normalizeRelativeMediaPath} from '../security/paths';
 import {CurationDatabase} from './database';
 
-export const CURATION_REPOSITORY_API_VERSION = 7;
+export const CURATION_REPOSITORY_API_VERSION = 8;
 
 type ItemRow = {
   id: number;
@@ -86,6 +86,9 @@ const METADATA_REQUEST_SELECT = `
          mr.requested_at AS requestedAt,
          mr.comment,
          mr.updated_at AS updatedAt,
+         mr.approved_by_user_id AS approvedByUserId,
+         mr.approved_by_user_name AS approvedByUserName,
+         mr.approved_at AS approvedAt,
          mr.closed_by_user_id AS closedByUserId,
          mr.closed_by_user_name AS closedByUserName,
          mr.closed_at AS closedAt,
@@ -455,15 +458,15 @@ export class CurationRepository {
     relativePathInput: string,
     requestId: number,
     actor: Actor,
-    outcome: 'RESOLVED' | 'DISMISSED',
+    outcome: 'APPROVED' | 'RESOLVED' | 'DISMISSED',
     resolutionComment?: string | null
   ): MetadataRequest {
     const relativePath = normalizeRelativeMediaPath(relativePathInput);
     if (!Number.isInteger(requestId) || requestId <= 0) {
       throw new Error('A valid metadata request ID is required');
     }
-    if (!['RESOLVED', 'DISMISSED'].includes(outcome)) {
-      throw new Error('Metadata request outcome must be RESOLVED or DISMISSED');
+    if (!['APPROVED', 'RESOLVED', 'DISMISSED'].includes(outcome)) {
+      throw new Error('Metadata request outcome must be APPROVED, RESOLVED, or DISMISSED');
     }
     const comment = this.normalizeComment(resolutionComment);
     return this.db.transaction(() => {
@@ -475,6 +478,22 @@ export class CurationRepository {
         throw new Error('This photo has no matching open metadata correction request');
       }
       const timestamp = this.now();
+      if (outcome === 'APPROVED') {
+        if (request.approvedAt !== null) {
+          throw new Error('This metadata correction request is already approved');
+        }
+        this.db.prepare(`
+          UPDATE metadata_requests
+             SET updated_at = ?, approved_by_user_id = ?,
+                 approved_by_user_name = ?, approved_at = ?
+           WHERE id = ? AND state = 'OPEN' AND approved_at IS NULL
+        `).run(timestamp, actor.id, actor.name, timestamp, requestId);
+        this.addMetadataEvent(requestId, 'APPROVED', actor, timestamp, {comment, granular: true});
+        return this.db.prepare(`${METADATA_REQUEST_SELECT} WHERE mr.id = ?`).get(requestId) as MetadataRequest;
+      }
+      if (outcome === 'RESOLVED' && request.approvedAt === null) {
+        throw new Error('Only approved metadata correction requests can be marked done individually');
+      }
       this.db.prepare(`
         UPDATE metadata_requests
            SET state = ?, updated_at = ?,
@@ -542,7 +561,7 @@ export class CurationRepository {
         requestId: request.id,
         kind: 'metadata',
         category: request.category,
-        state: request.state,
+        state: request.state === 'OPEN' && request.approvedAt !== null ? 'APPROVED' : request.state,
         requesterName: request.requestedByUserName,
         requestedAt: request.requestedAt,
         comment: request.comment,

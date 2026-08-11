@@ -83,9 +83,9 @@ class FrontendAssetTests(unittest.TestCase):
 
         self.assertIn("extensionEndpoint('review-metadata-request')", source)
         self.assertIn("request.requestId", source)
-        self.assertIn("approve.textContent = 'Approve'", source)
+        self.assertIn("advance.textContent = request.state === 'APPROVED' ? 'Mark done' : 'Approve'", source)
         self.assertIn("decline.textContent = 'Decline'", source)
-        self.assertIn("request.state === 'OPEN'", source)
+        self.assertIn("['OPEN', 'APPROVED'].includes(request.state)", source)
         self.assertIn("!deletionApproved", source)
         self.assertIn(".photo-container.pg-curation-delete-approved", source)
 
@@ -104,7 +104,16 @@ class FrontendAssetTests(unittest.TestCase):
         self.assertIn("const cancelOwnRequest", source)
         self.assertIn("extensionEndpoint('cancel-own-request')", source)
         self.assertIn("request.ownRequest === true", source)
-        self.assertIn("cancel.textContent = 'Cancel mine'", source)
+        self.assertIn("reviewContext.canModerate !== true", source)
+        self.assertIn("cancel.textContent = 'Cancel'", source)
+        self.assertNotIn("cancel.textContent = 'Cancel mine'", source)
+
+    def test_approved_metadata_remains_actionable_until_marked_done(self):
+        source = FRONTEND_ASSET.read_text(encoding="utf-8")
+
+        self.assertIn("['OPEN', 'APPROVED'].includes(request.state)", source)
+        self.assertIn("request.state === 'APPROVED' ? 'Mark done' : 'Approve'", source)
+        self.assertIn("request.state === 'APPROVED' ? 'RESOLVED' : 'APPROVED'", source)
 
     def test_details_dialog_uses_the_native_bootstrap_close_button(self):
         source = FRONTEND_ASSET.read_text(encoding="utf-8")

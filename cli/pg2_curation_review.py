@@ -150,7 +150,13 @@ def run(database: Path, state: str) -> int:
         elif state == "ACTIVE":
             metadata_where = "WHERE mr.state = 'OPEN'"
             metadata_parameters = ()
-        elif state in ("OPEN", "RESOLVED", "DISMISSED", "WITHDRAWN"):
+        elif state == "OPEN":
+            metadata_where = "WHERE mr.state = 'OPEN' AND mr.approved_at IS NULL"
+            metadata_parameters = ()
+        elif state == "APPROVED":
+            metadata_where = "WHERE mr.state = 'OPEN' AND mr.approved_at IS NOT NULL"
+            metadata_parameters = ()
+        elif state in ("RESOLVED", "DISMISSED", "WITHDRAWN"):
             metadata_where = "WHERE mr.state = ?"
             metadata_parameters = (state,)
         else:
@@ -158,8 +164,11 @@ def run(database: Path, state: str) -> int:
             metadata_parameters = ()
         metadata_requests = connection.execute(
             f"""
-            SELECT cm.relative_path, mr.category, mr.state,
+            SELECT cm.relative_path, mr.category,
+                   CASE WHEN mr.state = 'OPEN' AND mr.approved_at IS NOT NULL
+                        THEN 'APPROVED' ELSE mr.state END AS state,
                    mr.requested_by_user_name, mr.requested_at, mr.comment,
+                   mr.approved_by_user_name, mr.approved_at,
                    mr.updated_at, mr.closed_by_user_name, mr.closed_at,
                    mr.resolution_comment
               FROM metadata_requests mr
@@ -178,6 +187,8 @@ def run(database: Path, state: str) -> int:
             print(f'  Category:    {request["category"]}')
             print(f'  State:       {request["state"]}')
             print(f'  Requested:   {request["requested_by_user_name"]} @ {request["requested_at"]}')
+            if request["approved_at"]:
+                print(f'  Approved:    {request["approved_by_user_name"]} @ {request["approved_at"]}')
             if request["comment"]:
                 print(f'  Comment:     "{request["comment"]}"')
             if request["closed_at"]:

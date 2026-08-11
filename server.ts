@@ -161,7 +161,7 @@ const cancelOwnRequestIcon = {
 };
 
 export const init = async (extension: IExtensionObject<CurationConfig>): Promise<void> => {
-  if (CURATION_REPOSITORY_API_VERSION !== 7) {
+  if (CURATION_REPOSITORY_API_VERSION !== 8) {
     throw new Error(
       'Incompatible curation-request files: replace server.js and the complete compiled src directory together'
     );
@@ -232,15 +232,15 @@ export const init = async (extension: IExtensionObject<CurationConfig>): Promise
       if (!Number.isInteger(requestId) || requestId <= 0) {
         throw new Error('A valid metadata request ID is required');
       }
-      if (outcomeValue !== 'RESOLVED' && outcomeValue !== 'DISMISSED') {
-        throw new Error('Metadata request outcome must be RESOLVED or DISMISSED');
+      if (!['APPROVED', 'RESOLVED', 'DISMISSED'].includes(outcomeValue)) {
+        throw new Error('Metadata request outcome must be APPROVED, RESOLVED, or DISMISSED');
       }
       const mediaPaths = getMediaPaths(extension, media);
       const result = curationRepository!.closeMetadataRequest(
         mediaPaths.relativePath,
         requestId,
         actorFromUser(user),
-        outcomeValue
+        outcomeValue as 'APPROVED' | 'RESOLVED' | 'DISMISSED'
       );
       await saveCurationProjection(
         media,
@@ -250,7 +250,7 @@ export const init = async (extension: IExtensionObject<CurationConfig>): Promise
       extension.Logger.info(
         `${user.name}: ${outcomeValue.toLocaleLowerCase()} metadata request ${requestId} for ${mediaPaths.relativePath}`
       );
-      return {requestId: result.id, state: result.state};
+      return {requestId: result.id, state: outcomeValue};
     }
   );
 

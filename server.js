@@ -113,7 +113,7 @@ const cancelOwnRequestIcon = {
     items: '<path d="M48 224H0V56C0 42.7 10.7 32 24 32s24 10.7 24 24v62.1C91.2 45.7 170.1 0 256 0c141.4 0 256 114.6 256 256S397.4 512 256 512c-81.1 0-155.2-37.8-202.1-99.6-8-10.6-5.9-25.6 4.7-33.6s25.6-5.9 33.6 4.7C130.3 433.7 190.2 464 256 464c114.9 0 208-93.1 208-208S370.9 48 256 48c-72 0-138.7 37.5-176.6 98.6L144 144c13.3 0 24 10.7 24 24s-10.7 24-24 24H48v32z"/>'
 };
 const init = async (extension) => {
-    if (repository_1.CURATION_REPOSITORY_API_VERSION !== 7) {
+    if (repository_1.CURATION_REPOSITORY_API_VERSION !== 8) {
         throw new Error('Incompatible curation-request files: replace server.js and the complete compiled src directory together');
     }
     const config = extension.config.getConfig();
@@ -158,14 +158,14 @@ const init = async (extension) => {
         if (!Number.isInteger(requestId) || requestId <= 0) {
             throw new Error('A valid metadata request ID is required');
         }
-        if (outcomeValue !== 'RESOLVED' && outcomeValue !== 'DISMISSED') {
-            throw new Error('Metadata request outcome must be RESOLVED or DISMISSED');
+        if (!['APPROVED', 'RESOLVED', 'DISMISSED'].includes(outcomeValue)) {
+            throw new Error('Metadata request outcome must be APPROVED, RESOLVED, or DISMISSED');
         }
         const mediaPaths = (0, adapter_1.getMediaPaths)(extension, media);
         const result = curationRepository.closeMetadataRequest(mediaPaths.relativePath, requestId, actorFromUser(user), outcomeValue);
         await (0, adapter_1.saveCurationProjection)(media, mediaRepository, curationRepository.getProjection(mediaPaths.relativePath));
         extension.Logger.info(`${user.name}: ${outcomeValue.toLocaleLowerCase()} metadata request ${requestId} for ${mediaPaths.relativePath}`);
-        return { requestId: result.id, state: result.state };
+        return { requestId: result.id, state: outcomeValue };
     });
     extension.RESTApi.post.mediaJsonResponse(['cancel-own-request'], UserDTO_1.UserRoles.User, true, async (_params, body, user, media, mediaRepository) => {
         const requestId = Number(body?.data?.customFields?.requestId);

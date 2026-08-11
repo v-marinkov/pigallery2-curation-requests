@@ -70,6 +70,9 @@ CREATE TABLE metadata_requests (
   requested_at TEXT NOT NULL,
   comment TEXT,
   updated_at TEXT NOT NULL,
+  approved_by_user_id TEXT,
+  approved_by_user_name TEXT,
+  approved_at TEXT,
   closed_by_user_id TEXT,
   closed_by_user_name TEXT,
   closed_at TEXT,
@@ -198,6 +201,36 @@ class DeletionCliTests(unittest.TestCase):
         self.assertIn("2024/metadata.jpg", report)
         self.assertIn("faces", report)
         self.assertIn("Missing Alice", report)
+
+    def test_review_approved_filter_includes_accepted_metadata_work(self) -> None:
+        with database_connection(self.database) as connection:
+            media = connection.execute(
+                """
+                INSERT INTO curation_media(
+                  relative_path, media_type, public_token, created_at, updated_at
+                ) VALUES ('2024/approved-metadata.jpg', 'photo', ?, 'now', 'now')
+                """,
+                ("b" * 32,),
+            )
+            connection.execute(
+                """
+                INSERT INTO metadata_requests(
+                  curation_media_id, category, state,
+                  requested_by_user_id, requested_by_user_name,
+                  requested_at, comment, updated_at,
+                  approved_by_user_id, approved_by_user_name, approved_at
+                ) VALUES (?, 'location', 'OPEN', '1', 'anna', 'now',
+                          'Wrong city', 'now', '9', 'admin', 'later')
+                """,
+                (media.lastrowid,),
+            )
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.assertEqual(review_cli.run(self.database, "APPROVED"), 0)
+        report = output.getvalue()
+        self.assertIn("approved-metadata.jpg", report)
+        self.assertIn("State:       APPROVED", report)
+        self.assertIn("Approved:    admin @ later", report)
 
     def test_execute_deletes_matching_photo_and_selected_sidecar(self) -> None:
         photo = self.add_approved("2024/photo.jpg", b"photo")

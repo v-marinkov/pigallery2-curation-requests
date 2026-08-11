@@ -26,7 +26,7 @@ The scripts look for `.env` in the current directory and then beside the script.
 
 ## Review requests
 
-Show the active queues—open metadata requests plus pending and approved deletions:
+Show the active queues—pending and approved metadata work plus pending and approved deletions:
 
 ```bash
 python3 pg2_curation_review.py

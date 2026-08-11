@@ -304,20 +304,37 @@ it('executes general curation and deletion workflows without changing the photo'
     );
     await mediaRoutes.get('review-metadata-request')!.callback(
       {},
+      {data: {customFields: {requestId: facesRequest.requestId, outcome: 'APPROVED'}}},
+      {id: 9, name: 'admin', role: UserRoles.Admin},
+      media,
+      mediaRepository
+    );
+    assert.ok(media.metadata.keywords.includes('pg-curation:category:faces'));
+    assert.ok(media.metadata.keywords.includes('pg-curation:category:other'));
+    const approvedMetadataDetails = jsonRoutes.get('request-details/:token')?.callback(
+      {token: metadataToken}, undefined, {id: 9, name: 'admin', role: UserRoles.Admin}
+    ) as any;
+    assert.equal(
+      approvedMetadataDetails.requests.find(
+        (request: any) => request.requestId === facesRequest.requestId
+      ).state,
+      'APPROVED'
+    );
+    await mediaRoutes.get('review-metadata-request')!.callback(
+      {},
       {data: {customFields: {requestId: facesRequest.requestId, outcome: 'RESOLVED'}}},
       {id: 9, name: 'admin', role: UserRoles.Admin},
       media,
       mediaRepository
     );
     assert.ok(!media.metadata.keywords.includes('pg-curation:category:faces'));
-    assert.ok(media.metadata.keywords.includes('pg-curation:category:other'));
 
     await buttons.get('Resolve metadata requests (admin only)')!.callback(
       {}, {data: {customFields: {confirm: true, resolutionComment: 'XMP fixed'}}},
       {id: 9, name: 'admin', role: UserRoles.Admin}, media, mediaRepository
     );
     assert.deepEqual(media.metadata.keywords, ['family']);
-    assert.equal(saved.length, 6);
+    assert.equal(saved.length, 7);
     assert.ok(warnings.some(message => message.includes('blocked unauthorized attempt')));
   } finally {
     await cleanUp();

@@ -156,6 +156,14 @@ const MIGRATIONS = [
       CREATE INDEX metadata_request_events_request_idx
         ON metadata_request_events(metadata_request_id, created_at);
     `
+    },
+    {
+        version: 3,
+        sql: `
+      ALTER TABLE metadata_requests ADD COLUMN approved_by_user_id TEXT;
+      ALTER TABLE metadata_requests ADD COLUMN approved_by_user_name TEXT;
+      ALTER TABLE metadata_requests ADD COLUMN approved_at TEXT;
+    `
     }
 ];
 class CurationDatabase {

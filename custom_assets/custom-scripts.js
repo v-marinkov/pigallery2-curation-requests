@@ -605,9 +605,12 @@
   };
 
   const reviewMetadataRequest = async (request, mediaPath, outcome, section) => {
-    const verb = outcome === 'RESOLVED' ? 'Approve' : 'Decline';
+    const verb = outcome === 'APPROVED' ? 'Approve' : outcome === 'RESOLVED' ? 'Mark done' : 'Decline';
     const label = CATEGORY_LABELS[request.category] || String(request.category);
-    if (!globalThis.confirm(`${verb} the ${label} request from ${request.requesterName}?`)) {
+    const question = outcome === 'RESOLVED'
+      ? `Mark the ${label} request from ${request.requesterName} as done?`
+      : `${verb} the ${label} request from ${request.requesterName}?`;
+    if (!globalThis.confirm(question)) {
       return;
     }
     const buttons = section.querySelectorAll('.pg-curation-request-actions button');
@@ -634,7 +637,7 @@
           })
         }
       ));
-      status.textContent = `${verb}d. Refreshing…`;
+      status.textContent = `${outcome === 'RESOLVED' ? 'Marked done' : `${verb}d`}. Refreshing…`;
       globalThis.location.reload();
     } catch (error) {
       console.error(`[${EXTENSION_ID}] Could not review metadata request.`, error);
@@ -752,17 +755,22 @@
         title.textContent = CATEGORY_LABELS[request.category] || String(request.category);
         header.appendChild(title);
         if (
-          canReviewMetadata && request.kind === 'metadata' && request.state === 'OPEN' &&
+          canReviewMetadata && request.kind === 'metadata' && ['OPEN', 'APPROVED'].includes(request.state) &&
           Number.isInteger(request.requestId) && request.requestId > 0
         ) {
           const actions = document.createElement('div');
           actions.className = 'pg-curation-request-actions';
-          const approve = document.createElement('button');
-          approve.type = 'button';
-          approve.className = 'btn btn-sm btn-success';
-          approve.textContent = 'Approve';
-          approve.addEventListener('click', () => {
-            void reviewMetadataRequest(request, reviewContext.media, 'RESOLVED', section);
+          const advance = document.createElement('button');
+          advance.type = 'button';
+          advance.className = 'btn btn-sm btn-success';
+          advance.textContent = request.state === 'APPROVED' ? 'Mark done' : 'Approve';
+          advance.addEventListener('click', () => {
+            void reviewMetadataRequest(
+              request,
+              reviewContext.media,
+              request.state === 'APPROVED' ? 'RESOLVED' : 'APPROVED',
+              section
+            );
           });
           const decline = document.createElement('button');
           decline.type = 'button';
@@ -771,7 +779,7 @@
           decline.addEventListener('click', () => {
             void reviewMetadataRequest(request, reviewContext.media, 'DISMISSED', section);
           });
-          actions.append(approve, decline);
+          actions.append(advance, decline);
           header.appendChild(actions);
         } else if (
           canReviewDeletion && request.kind === 'deletion' &&
@@ -800,7 +808,8 @@
           header.appendChild(actions);
         }
         if (
-          request.ownRequest === true && Number.isInteger(request.requestId) &&
+          reviewContext.canModerate !== true && request.ownRequest === true &&
+          Number.isInteger(request.requestId) &&
           request.requestId > 0 && typeof reviewContext.media === 'string' &&
           reviewContext.media.length > 0
         ) {
@@ -813,7 +822,7 @@
           const cancel = document.createElement('button');
           cancel.type = 'button';
           cancel.className = 'btn btn-sm btn-outline-secondary';
-          cancel.textContent = 'Cancel mine';
+          cancel.textContent = 'Cancel';
           cancel.addEventListener('click', () => {
             void cancelOwnRequest(request, reviewContext.media, section);
           });

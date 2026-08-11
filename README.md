@@ -33,7 +33,7 @@ Other functionality includes:
 - requester cancellation restricted to the authenticated user's own active requests;
 - row-level cancellation of one owned request from the request-details dialog;
 - administrator-only deletion approval and decline;
-- administrator-only resolution and dismissal of metadata requests;
+- administrator-only approval, completion, and dismissal of metadata requests;
 - in-gallery comment/details display for administrators and request owners;
 - flat saved searches for open work, every metadata category, and deletion states;
 - a per-user **Curation mode** toggle in PiGallery2's Tools menu;
@@ -54,7 +54,7 @@ The project has four cooperating components:
 ```text
 Request curation
       │
-      ├── Metadata correction ── OPEN ──┬── RESOLVED
+      ├── Metadata correction ── OPEN ──┬── APPROVED ── RESOLVED after the edit
       │                                ├── DISMISSED
       │                                └── WITHDRAWN by its owner
       │
@@ -82,7 +82,7 @@ Server-side rules are authoritative:
 
 - only allowlisted authenticated users can create requests;
 - a user can withdraw only requests whose stored user ID matches their authenticated ID;
-- only administrators can resolve or dismiss metadata requests;
+- only administrators can approve, complete, or dismiss metadata requests;
 - only administrators can approve or decline deletion;
 - comments are returned only to administrators or their owning requester;
 - client-supplied usernames, tags, paths, and roles never grant permission.
@@ -99,17 +99,17 @@ All curation buttons are hidden while Curation mode is disabled. When enabled:
 - administrators see deletion Approve only when deletion is pending;
 - administrators see deletion Decline while deletion is pending, approved, or in error;
 - a top-right request-details badge appears for administrators and for owners of requests on that photo;
-- administrators can approve or decline one open metadata request from that details dialog, while the existing bulk controls remain available.
+- administrators can approve or decline one pending metadata request, then mark approved work done after making the correction; the existing bulk controls remain available.
 
 Cancelling withdraws all active requests made by that user for that photo. It never affects requests made by another account.
 
-The details dialog also offers **Cancel mine** for each request owned by the authenticated user. Metadata cancellation withdraws only that `OPEN` row. Deletion cancellation works while the photo-level deletion state is `PENDING`, `APPROVED`, or `ERROR`; if other deletion requesters remain, their workflow continues, and cancelling the final deletion request removes the photo from the active deletion queue.
+For non-administrators, the details dialog offers **Cancel** for each request owned by the authenticated user. Metadata cancellation withdraws that pending or approved active row. Deletion cancellation works while the photo-level deletion state is `PENDING`, `APPROVED`, or `ERROR`; if other deletion requesters remain, their workflow continues, and cancelling the final deletion request removes the photo from the active deletion queue. Administrators do not receive the redundant owner-cancellation action because they already have moderation controls.
 
 Resolving or dismissing metadata currently closes every open non-deletion request on that photo in one administrator action. Deletion state remains independent.
 
 Deletion is an exclusive request choice for each requester. Selecting it clears and disables the metadata categories in the popup, and the server ignores metadata flags in any request that also contains deletion. A user who owns an active deletion request cannot add metadata requests for that photo, even by bypassing the frontend; other users remain free to report metadata problems. Therefore metadata and deletion moderation pairs may coexist for administrators when different users have submitted the two kinds of request; colored outlines distinguish them.
 
-Granular metadata **Approve** closes exactly that request as `RESOLVED`; granular **Decline** closes it as `DISMISSED`. Each action is bound to the authenticated administrator, opaque photo token, PiGallery media path, request ID, and current `OPEN` state in one SQLite transaction. Deletion rows also expose the existing red approval/decline operations in the details dialog. Because deletion is a file-level workflow, either operation applies to the photo-level deletion item for every requester, and approval still calculates a fresh fingerprint. Once deletion is `APPROVED`, metadata moderation controls are hidden for that photo.
+Granular metadata **Approve** accepts exactly that request as outstanding manual work. It stays active and visible as `APPROVED`; after making the change in DigiKam, **Mark done** closes it as `RESOLVED`. **Decline** closes either a pending or approved request as `DISMISSED`. Each transition is bound to the authenticated administrator, opaque photo token, PiGallery media path, request ID, and current active state in one SQLite transaction. Deletion rows also expose the existing red approval/decline operations in the details dialog. Because deletion is a file-level workflow, either deletion operation applies to the photo-level deletion item for every requester, and approval still calculates a fresh fingerprint. Once deletion is `APPROVED`, metadata moderation controls are hidden for that photo.
 
 ## Curation mode
 
@@ -125,7 +125,7 @@ Directly beneath it, **My curation requests** opens PiGallery's native search wi
 
 ## Comments in the gallery
 
-Synthetic cached keywords include an opaque 32-character item token, not the comment. Clicking the top-right `ⓘ` badge asks an authenticated extension endpoint for details. Administrators also receive controls for resolving or dismissing individual open metadata rows; ordinary users receive a read-only view of their own rows.
+Synthetic cached keywords include an opaque 32-character item token, not the comment. Clicking the top-right details badge asks an authenticated extension endpoint for details. Administrators receive controls for approving, completing, or dismissing individual active metadata rows; ordinary users see their own rows and can cancel them individually.
 
 Administrators receive all active requests for that item. Ordinary users receive only requests stored under their authenticated user ID. The dialog renders all values as text, preventing request comments from being interpreted as HTML.
 
@@ -399,7 +399,7 @@ The installer places both commands in the configured CLI directory. See [cli/REA
 
 The default `ACTIVE` report contains:
 
-- open metadata correction requests;
+- pending and approved metadata correction requests;
 - pending deletion requests;
 - approved deletion work.
 
