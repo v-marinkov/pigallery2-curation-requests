@@ -363,6 +363,16 @@
       deletionInput.setAttribute('aria-describedby', warning.id);
     }
 
+    const modal = deletionInput.closest('.modal');
+    if (modal && modal.dataset.pgCurationBackdropBound !== 'true') {
+      modal.dataset.pgCurationBackdropBound = 'true';
+      modal.addEventListener('click', event => {
+        if (event.target === modal) {
+          modal.querySelector('.modal-header .btn-close')?.click();
+        }
+      });
+    }
+
     const synchronizeExclusiveChoice = () => {
       const deletionSelected = deletionInput.checked;
       const metadataInputs = METADATA_FIELD_IDS

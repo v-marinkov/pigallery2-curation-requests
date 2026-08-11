@@ -8,6 +8,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
+import shutil
 import stat
 import tempfile
 from typing import Sequence
@@ -21,7 +23,11 @@ def asset_cache_tag(asset_path: Path) -> str:
     return digest.hexdigest()[:12]
 
 
-def custom_html_head(cache_tag: str) -> str:
+LOADER_START = "/* pg2-curation-loader:start */"
+LOADER_END = "/* pg2-curation-loader:end */"
+
+
+def legacy_custom_html_head(cache_tag: str) -> str:
     return f"""(() => {{
   if (document.getElementById('pg2-curation-custom-script')) {{
     return;
@@ -36,6 +42,52 @@ def custom_html_head(cache_tag: str) -> str:
 
   document.head.appendChild(script);
 }})();"""
+
+
+def custom_html_head(cache_tag: str, asset_url: str = "pg2-curation-script.js") -> str:
+    encoded_url = json.dumps(f"{asset_url}?v={cache_tag}", ensure_ascii=True)
+    return f"""{LOADER_START}
+(() => {{
+  if (document.getElementById('pg2-curation-script-loader')) {{
+    return;
+  }}
+
+  const script = document.createElement('script');
+  script.id = 'pg2-curation-script-loader';
+  script.src = new URL(
+    {encoded_url},
+    document.baseURI
+  ).href;
+
+  document.head.appendChild(script);
+}})();
+{LOADER_END}"""
+
+
+def merge_custom_html_head(existing: str, loader: str) -> str:
+    existing = existing or ""
+    managed_pattern = re.compile(
+        rf"{re.escape(LOADER_START)}.*?{re.escape(LOADER_END)}",
+        re.DOTALL,
+    )
+    managed_matches = list(managed_pattern.finditer(existing))
+    if len(managed_matches) > 1:
+        raise ValueError("Server.customHTMLHead contains multiple PiGallery2 curation loader blocks")
+    if managed_matches:
+        return managed_pattern.sub(loader, existing, count=1)
+    if LOADER_START in existing or LOADER_END in existing:
+        raise ValueError("Server.customHTMLHead contains an incomplete PiGallery2 curation loader block")
+
+    legacy_template = re.escape(legacy_custom_html_head("CACHE_TAG"))
+    legacy_pattern = re.compile(
+        rf"^\s*{legacy_template.replace(re.escape('CACHE_TAG'), '[a-f0-9]{12}')}\s*$",
+        re.DOTALL,
+    )
+    if legacy_pattern.fullmatch(existing):
+        return loader
+    if not existing.strip():
+        return loader
+    return f"{existing.rstrip()}\n\n{loader}"
 
 
 def set_extension_settings(
@@ -75,6 +127,7 @@ def update_config(
     config_path: Path,
     cache_tag: str,
     extension_settings: tuple[str, str, str, int] | None = None,
+    asset_url: str = "pg2-curation-script.js",
 ) -> bool:
     if not config_path.is_file():
         raise ValueError(f"PiGallery2 config does not exist: {config_path}")
@@ -90,7 +143,10 @@ def update_config(
     elif not isinstance(server, dict):
         raise ValueError(f"Server in {config_path} is not a JSON object")
 
-    html = custom_html_head(cache_tag)
+    html = merge_custom_html_head(
+        str(server.get("customHTMLHead") or ""),
+        custom_html_head(cache_tag, asset_url),
+    )
     changed = server.get("customHTMLHead") != html
     server["customHTMLHead"] = html
     if extension_settings is not None:
@@ -99,6 +155,9 @@ def update_config(
         return False
 
     original = config_path.stat()
+    backup_path = config_path.with_name(f"{config_path.name}.pg2-curation.bak")
+    if not backup_path.exists():
+        shutil.copy2(config_path, backup_path)
     with tempfile.NamedTemporaryFile(
         mode="w",
         encoding="utf-8",
@@ -131,8 +190,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", required=True, type=Path, help="PiGallery2 config.json")
     source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("--asset", type=Path, help="custom-scripts.js used to calculate the cache tag")
+    source.add_argument("--asset", type=Path, help="browser script used to calculate the cache tag")
     source.add_argument("--cache-tag", help="precalculated 12-character lowercase SHA-256 prefix")
+    parser.add_argument(
+        "--asset-url",
+        default="pg2-curation-script.js",
+        help="browser-relative URL mounted inside each PiGallery2 locale",
+    )
     parser.add_argument("--extension-folder", help="PiGallery2 extension folder/config key")
     parser.add_argument("--database-path", help="curation database path as seen inside PiGallery2")
     parser.add_argument("--requester-allowlist", help="curation request access setting")
@@ -178,6 +242,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             arguments.config,
             cache_tag,
             extension_values if all(provided_extension_values) else None,
+            arguments.asset_url,
         )
     except (OSError, ValueError) as error:
         print(f"ERROR: {error}")

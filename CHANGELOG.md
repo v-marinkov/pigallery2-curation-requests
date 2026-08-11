@@ -23,6 +23,10 @@
 - Locked approved-deletion photos against all new metadata and deletion requests at both repository and frontend levels.
 - Moved all photo-level batch controls into a permission-aware panel at the top of the request-details dialog and hid their native overlay icons.
 - Kept Cancel my requests visually separate from administrator-only batch moderation while preserving individual row controls below.
+- Allowed the native Request curation modal to close when its outer backdrop area is clicked.
+- Renamed the browser asset to `pg2-curation-script.js` and retained configurable legacy deployment filenames.
+- Made installation preserve existing custom head code and CLI settings by default, create a one-time PiGallery config backup, and validate required Compose mounts before changing config.
+- Expanded public installation, component, workflow, mutation-risk, optional-feature, and manual configuration documentation.
 - Extended the host review report to include metadata correction requests while keeping the deletion executor deletion-only.
 - Preserved the existing deletion schema, approval fingerprints, queue locking, and defensive executor.
 

@@ -87,7 +87,7 @@ DEPLOY_CONFIG_FILE="${PG2_DEPLOY_CONFIG_FILE:-${DEPLOY_BASE}/config/config.json}
 DEPLOY_CONTAINER_EXTENSION_DIR="${PG2_DEPLOY_CONTAINER_EXTENSION_DIR:-/app/data/config/extensions/curation-requests}"
 DEPLOY_CONTAINER_CURATION_DIR="${PG2_DEPLOY_CONTAINER_CURATION_DIR:-/app/data/curation}"
 DEPLOY_CONTAINER_IMAGE_DIR="${PG2_DEPLOY_CONTAINER_IMAGE_DIR:-/app/data/images}"
-DEPLOY_CONTAINER_ASSET_PATH="${PG2_DEPLOY_CONTAINER_ASSET_PATH:-/app/dist/en/custom-scripts.js}"
+DEPLOY_CONTAINER_ASSET_PATH="${PG2_DEPLOY_CONTAINER_ASSET_PATH:-/app/dist/en/pg2-curation-script.js}"
 DEPLOY_RECREATE_CONTAINER="${PG2_DEPLOY_RECREATE_CONTAINER:-true}"
 DEPLOY_INSTALL_DEPENDENCIES="${PG2_DEPLOY_INSTALL_DEPENDENCIES:-true}"
 
@@ -177,6 +177,9 @@ done
   fail "PG2_DEPLOY_RECREATE_CONTAINER must be true or false"
 [[ "${DEPLOY_INSTALL_DEPENDENCIES}" == "true" || "${DEPLOY_INSTALL_DEPENDENCIES}" == "false" ]] || \
   fail "PG2_DEPLOY_INSTALL_DEPENDENCIES must be true or false"
+DEPLOY_BROWSER_ASSET_NAME="$(basename -- "${DEPLOY_CONTAINER_ASSET_PATH}")"
+[[ "${DEPLOY_BROWSER_ASSET_NAME}" =~ ^[A-Za-z0-9_.-]+$ ]] || \
+  fail "Unsafe browser asset filename: ${DEPLOY_BROWSER_ASSET_NAME}"
 
 if [[ "${DEPLOY_MODE}" == "check" ]]; then
   echo "Deployment configuration is valid."
@@ -196,6 +199,7 @@ if [[ "${DEPLOY_MODE}" == "check" ]]; then
   echo "PiGallery config:    ${DEPLOY_CONFIG_FILE}"
   echo "Recreate container:  ${DEPLOY_RECREATE_CONTAINER}"
   echo "Install dependencies: ${DEPLOY_INSTALL_DEPENDENCIES}"
+  echo "Browser asset name:    ${DEPLOY_BROWSER_ASSET_NAME}"
   exit 0
 fi
 
@@ -222,7 +226,7 @@ REQUIRED_FILES=(
   cli/pg2_curation_review.py
   cli/README.md
   cli/.env.example
-  custom_assets/custom-scripts.js
+  custom_assets/pg2-curation-script.js
   scripts/set_custom_html_head.py
 )
 
@@ -255,12 +259,14 @@ install -m 0644 cli/README.md cli/.env.example "${CLI_STAGE}/"
 if [[ -f cli/.env ]]; then
   install -m 0600 cli/.env "${CLI_STAGE}/.env.deploy"
 fi
-install -m 0644 custom_assets/custom-scripts.js "${CUSTOM_ASSETS_STAGE}/"
+install -m 0644 \
+  custom_assets/pg2-curation-script.js \
+  "${CUSTOM_ASSETS_STAGE}/${DEPLOY_BROWSER_ASSET_NAME}"
 
 CUSTOM_SCRIPT_CACHE_TAG="$(node -e '
   const crypto = require("node:crypto");
   const fs = require("node:fs");
-  const contents = fs.readFileSync("custom_assets/custom-scripts.js");
+  const contents = fs.readFileSync("custom_assets/pg2-curation-script.js");
   process.stdout.write(crypto.createHash("sha256").update(contents).digest("hex").slice(0, 12));
 ')"
 [[ "${CUSTOM_SCRIPT_CACHE_TAG}" =~ ^[a-f0-9]{12}$ ]] || \
@@ -351,6 +357,7 @@ scp -o "ControlPath=${SSH_CONTROL_PATH}" -r \
 echo "Setting Server.customHTMLHead in PiGallery2 config..."
 ssh -o "ControlPath=${SSH_CONTROL_PATH}" "${DEPLOY_REMOTE}" \
   python3 - --config "${DEPLOY_CONFIG_FILE}" --cache-tag "${CUSTOM_SCRIPT_CACHE_TAG}" \
+  --asset-url "${DEPLOY_BROWSER_ASSET_NAME}" \
   < "${SCRIPT_DIR}/scripts/set_custom_html_head.py"
 
 if [[ "${DEPLOY_INSTALL_DEPENDENCIES}" == "true" ]]; then

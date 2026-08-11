@@ -10,10 +10,10 @@ services:
       - "${PG2_TEMP_DIR}:/app/data/tmp"
       - "${PG2_CURATION_DIR}:/app/data/curation"
       - "${PG2_PHOTO_LIBRARY}:/app/data/images:ro"
-      - "${PG2_CUSTOM_ASSETS_DIR}/custom-scripts.js:/app/dist/en/custom-scripts.js:ro"
+      - "${PG2_CUSTOM_ASSETS_DIR}/pg2-curation-script.js:/app/dist/en/pg2-curation-script.js:ro"
     ports:
       - "${PG2_HTTP_PORT}:80"
     restart: unless-stopped
 
-    # Add another read-only custom-scripts.js mount for every enabled locale,
+    # Add another read-only pg2-curation-script.js mount for every enabled locale,
     # changing only the /app/dist/<locale>/ destination.

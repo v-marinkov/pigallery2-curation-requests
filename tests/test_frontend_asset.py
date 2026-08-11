@@ -3,7 +3,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-FRONTEND_ASSET = PROJECT_ROOT / "custom_assets" / "custom-scripts.js"
+FRONTEND_ASSET = PROJECT_ROOT / "custom_assets" / "pg2-curation-script.js"
 
 
 class FrontendAssetTests(unittest.TestCase):
@@ -67,6 +67,13 @@ class FrontendAssetTests(unittest.TestCase):
         self.assertIn("'pg-curation-metadata-first'", source)
         self.assertIn("'pg-curation-metadata-last'", source)
         self.assertIn("metadata corrections above", source)
+
+    def test_native_request_modal_closes_when_its_outer_area_is_clicked(self):
+        source = FRONTEND_ASSET.read_text(encoding="utf-8")
+
+        self.assertIn("modal.dataset.pgCurationBackdropBound", source)
+        self.assertIn("if (event.target === modal)", source)
+        self.assertIn("modal.querySelector('.modal-header .btn-close')?.click()", source)
 
     def test_admin_metadata_and_deletion_controls_can_coexist(self):
         source = FRONTEND_ASSET.read_text(encoding="utf-8")

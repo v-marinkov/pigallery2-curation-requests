@@ -81,7 +81,7 @@ CONFIG_FILE="${PG2_CONFIG_FILE:-${INSTALL_ROOT}/config/config.json}"
 CONTAINER_EXTENSION_DIR="${PG2_CONTAINER_EXTENSION_DIR:-/app/data/config/extensions/curation-requests}"
 CONTAINER_CURATION_DIR="${PG2_CONTAINER_CURATION_DIR:-/app/data/curation}"
 CONTAINER_IMAGE_DIR="${PG2_CONTAINER_IMAGE_DIR:-/app/data/images}"
-CONTAINER_ASSET_PATH="${PG2_CONTAINER_ASSET_PATH:-/app/dist/en/custom-scripts.js}"
+CONTAINER_ASSET_PATH="${PG2_CONTAINER_ASSET_PATH:-/app/dist/en/pg2-curation-script.js}"
 
 EXTENSION_FOLDER="${PG2_EXTENSION_FOLDER:-curation-requests}"
 EXTENSION_DATABASE_PATH="${PG2_EXTENSION_DATABASE_PATH:-/app/data/curation/curation.sqlite}"
@@ -95,6 +95,7 @@ SIDECAR_STYLE="${PG2_SIDECAR_STYLE:-none}"
 INSTALL_GIT_PULL="${PG2_INSTALL_GIT_PULL:-true}"
 INSTALL_DEPENDENCIES="${PG2_INSTALL_DEPENDENCIES:-true}"
 RECREATE_CONTAINER="${PG2_RECREATE_CONTAINER:-true}"
+OVERWRITE_CLI_ENV="${PG2_OVERWRITE_CLI_ENV:-false}"
 
 [[ -n "${INSTALL_ROOT}" ]] || fail "PG2_INSTALL_ROOT is required in ${INSTALL_ENV_FILE}"
 [[ -n "${CONTAINER}" ]] || fail "PG2_CONTAINER is required in ${INSTALL_ENV_FILE}"
@@ -127,9 +128,11 @@ done
 [[ "${EXTENSION_COMMENT_MAX_LENGTH}" =~ ^[1-9][0-9]*$ ]] || fail "PG2_EXTENSION_COMMENT_MAX_LENGTH must be positive"
 [[ "${SIDECAR_STYLE}" == "none" || "${SIDECAR_STYLE}" == "appended" || "${SIDECAR_STYLE}" == "stem" ]] || \
   fail "PG2_SIDECAR_STYLE must be none, appended, or stem"
-for boolean_value in "${INSTALL_GIT_PULL}" "${INSTALL_DEPENDENCIES}" "${RECREATE_CONTAINER}"; do
+for boolean_value in "${INSTALL_GIT_PULL}" "${INSTALL_DEPENDENCIES}" "${RECREATE_CONTAINER}" "${OVERWRITE_CLI_ENV}"; do
   [[ "${boolean_value}" == "true" || "${boolean_value}" == "false" ]] || fail "Installer boolean settings must be true or false"
 done
+BROWSER_ASSET_NAME="$(basename -- "${CONTAINER_ASSET_PATH}")"
+[[ "${BROWSER_ASSET_NAME}" =~ ^[A-Za-z0-9_.-]+$ ]] || fail "Unsafe browser asset filename: ${BROWSER_ASSET_NAME}"
 
 if [[ "${INSTALL_MODE}" == "check" ]]; then
   echo "Server installation configuration is valid."
@@ -149,6 +152,8 @@ if [[ "${INSTALL_MODE}" == "check" ]]; then
   echo "Git pull:              ${INSTALL_GIT_PULL}"
   echo "Install dependencies:  ${INSTALL_DEPENDENCIES}"
   echo "Recreate container:    ${RECREATE_CONTAINER}"
+  echo "Browser asset name:    ${BROWSER_ASSET_NAME}"
+  echo "Overwrite CLI .env:    ${OVERWRITE_CLI_ENV}"
   exit 0
 fi
 
@@ -194,7 +199,7 @@ REQUIRED_FILES=(
   cli/pg2_curation_review.py
   cli/README.md
   cli/.env.example
-  custom_assets/custom-scripts.js
+  custom_assets/pg2-curation-script.js
   scripts/set_custom_html_head.py
 )
 for required_file in "${REQUIRED_FILES[@]}"; do
@@ -228,10 +233,26 @@ compose_recreate() {
   )
 }
 
+mount_rw() {
+  local destination="$1"
+  docker inspect -f "{{range .Mounts}}{{if eq .Destination \"${destination}\"}}{{.RW}}{{end}}{{end}}" "${CONTAINER}"
+}
+
+validate_configured_mounts() {
+  [[ "$(mount_rw "${CONTAINER_CURATION_DIR}")" == "true" ]] || \
+    fail "Compose must provide a writable curation mount at ${CONTAINER_CURATION_DIR}; install.sh does not edit Compose files"
+  [[ "$(mount_rw "${CONTAINER_IMAGE_DIR}")" == "false" ]] || \
+    fail "Compose must provide the photo library read-only at ${CONTAINER_IMAGE_DIR}; install.sh does not edit Compose files"
+  [[ "$(mount_rw "${CONTAINER_ASSET_PATH}")" == "false" ]] || \
+    fail "Compose must provide a read-only browser asset mount at ${CONTAINER_ASSET_PATH}; install.sh does not edit Compose files"
+}
+
 mkdir -p "${EXTENSION_DIR}" "${CLI_DIR}" "${CUSTOM_ASSETS_DIR}" "$(dirname -- "${CURATION_DB}")"
 
 # The source file must exist before Compose creates a file bind mount.
-install -m 0644 "${SCRIPT_DIR}/custom_assets/custom-scripts.js" "${CUSTOM_ASSETS_DIR}/custom-scripts.js"
+install -m 0644 \
+  "${SCRIPT_DIR}/custom_assets/pg2-curation-script.js" \
+  "${CUSTOM_ASSETS_DIR}/${BROWSER_ASSET_NAME}"
 
 if ! docker inspect "${CONTAINER}" >/dev/null 2>&1; then
   echo "Creating ${CONTAINER} with Docker Compose without starting it..."
@@ -244,6 +265,9 @@ else
   echo "${CONTAINER} is already stopped."
 fi
 CONTAINER_START_REQUIRED=1
+
+echo "Validating required mounts before changing PiGallery2 configuration..."
+validate_configured_mounts
 
 echo "Installing extension production files..."
 mkdir -p "${EXTENSION_DIR}/src/db" "${EXTENSION_DIR}/src/pigallery" "${EXTENSION_DIR}/src/security"
@@ -267,19 +291,24 @@ install -m 0755 \
   "${CLI_DIR}/"
 install -m 0644 "${SCRIPT_DIR}/cli/README.md" "${SCRIPT_DIR}/cli/.env.example" "${CLI_DIR}/"
 
-cli_env_temp="$(mktemp "${CLI_DIR}/.env.XXXXXXXX")"
-chmod 0600 "${cli_env_temp}"
-printf '%s\n' \
-  "PG2_CURATION_DB=${CURATION_DB}" \
-  "PG2_PHOTO_ROOT=${PHOTO_ROOT}" \
-  "PG2_SIDECAR_STYLE=${SIDECAR_STYLE}" \
-  > "${cli_env_temp}"
-mv -f "${cli_env_temp}" "${CLI_DIR}/.env"
+if [[ ! -f "${CLI_DIR}/.env" || "${OVERWRITE_CLI_ENV}" == "true" ]]; then
+  cli_env_temp="$(mktemp "${CLI_DIR}/.env.XXXXXXXX")"
+  chmod 0600 "${cli_env_temp}"
+  printf '%s\n' \
+    "PG2_CURATION_DB=${CURATION_DB}" \
+    "PG2_PHOTO_ROOT=${PHOTO_ROOT}" \
+    "PG2_SIDECAR_STYLE=${SIDECAR_STYLE}" \
+    > "${cli_env_temp}"
+  mv -f "${cli_env_temp}" "${CLI_DIR}/.env"
+else
+  echo "Preserving existing CLI settings: ${CLI_DIR}/.env"
+fi
 
 echo "Configuring PiGallery2 extension settings and browser loader..."
 python3 "${SCRIPT_DIR}/scripts/set_custom_html_head.py" \
   --config "${CONFIG_FILE}" \
-  --asset "${CUSTOM_ASSETS_DIR}/custom-scripts.js" \
+  --asset "${CUSTOM_ASSETS_DIR}/${BROWSER_ASSET_NAME}" \
+  --asset-url "${BROWSER_ASSET_NAME}" \
   --extension-folder "${EXTENSION_FOLDER}" \
   --database-path "${EXTENSION_DATABASE_PATH}" \
   --requester-allowlist "${EXTENSION_REQUESTER_ALLOWLIST}" \
@@ -308,14 +337,7 @@ fi
 
 [[ "$(docker inspect -f '{{.State.Running}}' "${CONTAINER}")" == "true" ]] || fail "${CONTAINER} is not running"
 
-mount_rw() {
-  local destination="$1"
-  docker inspect -f "{{range .Mounts}}{{if eq .Destination \"${destination}\"}}{{.RW}}{{end}}{{end}}" "${CONTAINER}"
-}
-
-[[ "$(mount_rw "${CONTAINER_CURATION_DIR}")" == "true" ]] || fail "Writable curation mount is missing at ${CONTAINER_CURATION_DIR}"
-[[ "$(mount_rw "${CONTAINER_IMAGE_DIR}")" == "false" ]] || fail "Read-only photo-library mount is missing at ${CONTAINER_IMAGE_DIR}"
-[[ "$(mount_rw "${CONTAINER_ASSET_PATH}")" == "false" ]] || fail "Read-only browser asset mount is missing at ${CONTAINER_ASSET_PATH}"
+validate_configured_mounts
 docker exec "${CONTAINER}" test -f "${CONTAINER_ASSET_PATH}" || fail "Browser asset is not visible inside the container"
 
 CONTAINER_START_REQUIRED=0
@@ -325,6 +347,7 @@ echo "Installation complete."
 echo "Extension: ${EXTENSION_DIR}"
 echo "Curation DB: ${CURATION_DB}"
 echo "CLI: ${CLI_DIR}"
-echo "Browser asset: ${CUSTOM_ASSETS_DIR}/custom-scripts.js"
+echo "Browser asset: ${CUSTOM_ASSETS_DIR}/${BROWSER_ASSET_NAME}"
+echo "Config backup: ${CONFIG_FILE}.pg2-curation.bak (created once, before the first change)"
 echo
 echo "Inspect startup with: docker logs --since 2m ${CONTAINER}"

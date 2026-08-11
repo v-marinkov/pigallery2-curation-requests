@@ -48,7 +48,7 @@ class ServerInstallScriptTests(unittest.TestCase):
                           *Config.Image*) printf '%s\n' example/pigallery2:test ;;
                           *'/app/data/curation'*) printf '%s\n' true ;;
                           *'/app/data/images'*) printf '%s\n' false ;;
-                          *'/app/dist/en/custom-scripts.js'*) printf '%s\n' false ;;
+                          *'/app/dist/en/pg2-curation-script.js'*) printf '%s\n' false ;;
                           *) exit 1 ;;
                         esac
                         ;;
@@ -80,7 +80,7 @@ class ServerInstallScriptTests(unittest.TestCase):
                     PG2_CONTAINER_EXTENSION_DIR=/app/data/config/extensions/curation-requests
                     PG2_CONTAINER_CURATION_DIR=/app/data/curation
                     PG2_CONTAINER_IMAGE_DIR=/app/data/images
-                    PG2_CONTAINER_ASSET_PATH=/app/dist/en/custom-scripts.js
+                    PG2_CONTAINER_ASSET_PATH=/app/dist/en/pg2-curation-script.js
                     PG2_EXTENSION_FOLDER=curation-requests
                     PG2_EXTENSION_DATABASE_PATH=/app/data/curation/curation.sqlite
                     PG2_EXTENSION_REQUESTER_ALLOWLIST=admin, family-user
@@ -115,7 +115,7 @@ class ServerInstallScriptTests(unittest.TestCase):
             self.assertTrue((extension_dir / "src" / "db" / "repository.js").is_file())
             self.assertFalse((extension_dir / "server.ts").exists())
             self.assertFalse((extension_dir / "tests").exists())
-            self.assertTrue((install_root / "custom_assets" / "custom-scripts.js").is_file())
+            self.assertTrue((install_root / "custom_assets" / "pg2-curation-script.js").is_file())
 
             cli_env = (install_root / "curation" / "cli" / ".env").read_text(encoding="utf-8")
             self.assertEqual(
@@ -133,7 +133,8 @@ class ServerInstallScriptTests(unittest.TestCase):
             updated = json.loads(config_path.read_text(encoding="utf-8"))
             self.assertEqual(updated["Server"]["applicationTitle"], "Family Photos")
             self.assertEqual(updated["Database"], {"type": "sqlite"})
-            self.assertIn("custom-scripts.js?v=", updated["Server"]["customHTMLHead"])
+            self.assertIn("pg2-curation-script.js?v=", updated["Server"]["customHTMLHead"])
+            self.assertTrue(Path(f"{config_path}.pg2-curation.bak").is_file())
             self.assertEqual(
                 updated["Extensions"]["extensions"]["curation-requests"],
                 {
@@ -146,6 +147,20 @@ class ServerInstallScriptTests(unittest.TestCase):
                     },
                 },
             )
+
+            cli_env_path = install_root / "curation" / "cli" / ".env"
+            cli_env_path.write_text("PRESERVE_ME=true\n", encoding="utf-8")
+            repeated = subprocess.run(
+                [str(PROJECT_ROOT / "install.sh")],
+                cwd=PROJECT_ROOT,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(repeated.returncode, 0, repeated.stdout + repeated.stderr)
+            self.assertIn("Preserving existing CLI settings", repeated.stdout)
+            self.assertEqual(cli_env_path.read_text(encoding="utf-8"), "PRESERVE_ME=true\n")
 
     def test_check_config_rejects_unsafe_paths_without_calling_docker(self) -> None:
         with tempfile.TemporaryDirectory(prefix="pg2-server-install-") as folder:
