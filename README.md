@@ -49,6 +49,7 @@ Other functionality includes:
 - automatic migration of existing deletion-only and earlier curation databases.
 
 Any photo with an open request has an info button on the top right of its thumbnail. For normal users, clicking it shows the user's own requests and options to retract them. Admins can view the requests from all users for the given photo, approve/mark down/decline them individually or in batch.
+<img width="604" height="928" alt="image" src="https://github.com/user-attachments/assets/5aabed92-f862-4618-bbcd-60bc48776a66" />
 
 ## Architecture
 
