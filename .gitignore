@@ -1,0 +1,13 @@
+node_modules/
+.env
+**/.env
+.env.deploy
+__pycache__/
+*.py[cod]
+.Rhistory
+.DS_Store
+.coverage
+coverage/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

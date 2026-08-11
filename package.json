@@ -1,0 +1,36 @@
+{
+  "name": "pigallery2-curation-deletion-review",
+  "version": "0.3.0",
+  "description": "Moderated deletion requests for PiGallery2 without granting it filesystem write access",
+  "private": true,
+  "license": "MIT",
+  "keywords": [
+    "pigallery2",
+    "photo-management",
+    "curation",
+    "deletion-workflow",
+    "sqlite"
+  ],
+  "main": "server.js",
+  "engines": {
+    "node": ">=22 <24"
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "npm run build && node --test tests/*.test.js && python3 -m unittest discover -s tests -p 'test_*.py'",
+    "clean": "find . -type f -name '*.js' ! -path './node_modules/*' -delete && find . -type f -name '*.js.map' ! -path './node_modules/*' -delete"
+  },
+  "dependencies": {
+    "better-sqlite3": "11.10.0",
+    "pigallery2-extension-kit": "3.5.2",
+    "reflect-metadata": "0.2.2",
+    "typeconfig": "2.3.4"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "7.6.13",
+    "@types/express": "4.17.23",
+    "@types/node": "22.16.5",
+    "typescript": "5.8.3",
+    "typeorm": "0.3.25"
+  }
+}

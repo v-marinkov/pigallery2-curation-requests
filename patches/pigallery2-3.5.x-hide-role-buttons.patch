@@ -1,0 +1,13 @@
+diff --git a/src/frontend/app/ui/gallery/grid/photo/photo.grid.gallery.component.ts b/src/frontend/app/ui/gallery/grid/photo/photo.grid.gallery.component.ts
+--- a/src/frontend/app/ui/gallery/grid/photo/photo.grid.gallery.component.ts
++++ b/src/frontend/app/ui/gallery/grid/photo/photo.grid.gallery.component.ts
+@@ -104,6 +104,9 @@ export class GalleryPhotoComponent implements IRenderable, OnInit, OnDestroy {
+     });
+ 
+     this.mediaButtons = allButtons.filter(button => {
++      if (button.minUserRole && !this.authService.isAuthorized(button.minUserRole)) {
++        return false;
++      }
+       if (this.gridMedia.isVideo() && button.skipVideos) {
+         return false;
+       }

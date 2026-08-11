@@ -1,0 +1,23 @@
+{
+  "compileOnSave": true,
+  "compilerOptions": {
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+    "sourceMap": true,
+    "declaration": false,
+    "downlevelIteration": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "target": "ES2022",
+    "module": "CommonJS",
+    "useDefineForClassFields": false,
+    "skipLibCheck": true,
+    "noEmitOnError": true,
+    "lib": ["ES2022", "dom"]
+  },
+  "exclude": ["node_modules"]
+}
