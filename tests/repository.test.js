@@ -179,6 +179,38 @@ const fingerprint = {
         strict_1.default.equal(result.remainingRequesters, 0);
         repository.close();
     });
+    (0, node_test_1.it)('cancels only the exact owned request while preserving other requesters', () => {
+        const repository = createRepository();
+        repository.requestDeletion({
+            relativePath: 'photo.jpg', mediaType: 'photo', fingerprint,
+            actor: { id: '1', name: 'anna' }
+        });
+        repository.requestDeletion({
+            relativePath: 'photo.jpg', mediaType: 'photo', fingerprint,
+            actor: { id: '2', name: 'bob' }
+        });
+        const deletionRequests = repository.getInfo('photo.jpg').requests;
+        const annaDeletion = deletionRequests.find(request => request.requestedByUserId === '1');
+        const bobDeletion = deletionRequests.find(request => request.requestedByUserId === '2');
+        strict_1.default.equal(repository.withdrawOwnDeletionRequest('photo.jpg', { id: '1', name: 'anna' }, bobDeletion.id).status, 'not_requester');
+        repository.approve('photo.jpg', { id: '9', name: 'admin' }, fingerprint);
+        const withdrawn = repository.withdrawOwnDeletionRequest('photo.jpg', { id: '1', name: 'anna' }, annaDeletion.id);
+        strict_1.default.equal(withdrawn.status, 'withdrawn');
+        strict_1.default.equal(withdrawn.item?.state, 'APPROVED');
+        strict_1.default.equal(withdrawn.remainingRequesters, 1);
+        repository.requestMetadata({
+            relativePath: 'photo.jpg', mediaType: 'photo', categories: ['faces', 'tags'],
+            actor: { id: '1', name: 'anna' }
+        });
+        const details = repository.getClientRequestDetails(repository.getProjection('photo.jpg').itemToken, { id: '1', name: 'anna' }, false);
+        strict_1.default.ok(details.every(detail => Number.isInteger(detail.requestId)));
+        const faces = details.find(detail => detail.category === 'faces');
+        const tags = details.find(detail => detail.category === 'tags');
+        strict_1.default.throws(() => repository.withdrawOwnMetadataRequest('photo.jpg', tags.requestId, { id: '2', name: 'bob' }), /owned by this user/);
+        strict_1.default.equal(repository.withdrawOwnMetadataRequest('photo.jpg', faces.requestId, { id: '1', name: 'anna' }).state, 'WITHDRAWN');
+        strict_1.default.deepEqual(repository.getProjection('photo.jpg')?.metadataCategories, ['tags']);
+        repository.close();
+    });
     (0, node_test_1.it)('stores independent metadata categories and exposes comments only to owners or administrators', () => {
         const repository = createRepository();
         const first = repository.requestMetadata({
@@ -205,7 +237,7 @@ const fingerprint = {
         const ownerDetails = repository.getClientRequestDetails(projection.itemToken, { id: '1', name: 'anna' }, false);
         strict_1.default.deepEqual(ownerDetails.map(detail => detail.category), ['faces', 'location']);
         strict_1.default.ok(ownerDetails.every(detail => detail.ownRequest));
-        strict_1.default.ok(ownerDetails.every(detail => detail.requestId === undefined));
+        strict_1.default.ok(ownerDetails.every(detail => Number.isInteger(detail.requestId)));
         strict_1.default.equal(ownerDetails[0].comment, 'Please identify the grandparents');
         strict_1.default.deepEqual(repository.getClientRequestDetails(projection.itemToken, { id: '3', name: 'charlie' }, false), []);
         const adminDetails = repository.getClientRequestDetails(projection.itemToken, { id: '9', name: 'admin' }, true);

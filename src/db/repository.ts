@@ -17,7 +17,7 @@ import {
 import {normalizeRelativeMediaPath} from '../security/paths';
 import {CurationDatabase} from './database';
 
-export const CURATION_REPOSITORY_API_VERSION = 6;
+export const CURATION_REPOSITORY_API_VERSION = 7;
 
 type ItemRow = {
   id: number;
@@ -242,21 +242,32 @@ export class CurationRepository {
 
   withdrawOwnDeletionRequest(
     relativePathInput: string,
-    actor: Actor
+    actor: Actor,
+    requestId?: number
   ): WithdrawDeletionRequestResult {
     const relativePath = normalizeRelativeMediaPath(relativePathInput);
+    if (requestId !== undefined && (!Number.isInteger(requestId) || requestId <= 0)) {
+      throw new Error('A valid deletion request ID is required');
+    }
     return this.db.transaction((): WithdrawDeletionRequestResult => {
       const item = this.getItem(relativePath);
       if (!item || !['PENDING', 'APPROVED', 'ERROR'].includes(item.state)) {
         return {status: 'not_requester', item, remainingRequesters: 0};
       }
 
-      const request = this.db.prepare(`
-        SELECT id
-          FROM deletion_requests
-         WHERE deletion_item_id = ? AND cycle = ?
-           AND requested_by_user_id = ? AND withdrawn_at IS NULL
-      `).get(item.id, item.currentCycle, actor.id) as {id: number} | undefined;
+      const request = requestId === undefined
+        ? this.db.prepare(`
+            SELECT id
+              FROM deletion_requests
+             WHERE deletion_item_id = ? AND cycle = ?
+               AND requested_by_user_id = ? AND withdrawn_at IS NULL
+          `).get(item.id, item.currentCycle, actor.id) as {id: number} | undefined
+        : this.db.prepare(`
+            SELECT id
+              FROM deletion_requests
+             WHERE id = ? AND deletion_item_id = ? AND cycle = ?
+               AND requested_by_user_id = ? AND withdrawn_at IS NULL
+          `).get(requestId, item.id, item.currentCycle, actor.id) as {id: number} | undefined;
 
       if (!request) {
         const remainingRequesters = this.activeRequesterCount(item.id, item.currentCycle);
@@ -344,6 +355,36 @@ export class CurationRepository {
         created.push(category);
       }
       return {created, existing};
+    })();
+  }
+
+  withdrawOwnMetadataRequest(
+    relativePathInput: string,
+    requestId: number,
+    actor: Actor
+  ): MetadataRequest {
+    const relativePath = normalizeRelativeMediaPath(relativePathInput);
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      throw new Error('A valid metadata request ID is required');
+    }
+    return this.db.transaction(() => {
+      const request = this.db.prepare(`
+        ${METADATA_REQUEST_SELECT}
+         WHERE mr.id = ? AND cm.relative_path = ?
+           AND mr.requested_by_user_id = ? AND mr.state = 'OPEN'
+      `).get(requestId, relativePath, actor.id) as MetadataRequest | undefined;
+      if (!request) {
+        throw new Error('This photo has no matching active metadata request owned by this user');
+      }
+      const timestamp = this.now();
+      this.db.prepare(`
+        UPDATE metadata_requests
+           SET state = 'WITHDRAWN', updated_at = ?,
+               closed_by_user_id = ?, closed_by_user_name = ?, closed_at = ?
+         WHERE id = ? AND requested_by_user_id = ? AND state = 'OPEN'
+      `).run(timestamp, actor.id, actor.name, timestamp, requestId, actor.id);
+      this.addMetadataEvent(requestId, 'WITHDRAWN', actor, timestamp, {granular: true});
+      return this.db.prepare(`${METADATA_REQUEST_SELECT} WHERE mr.id = ?`).get(requestId) as MetadataRequest;
     })();
   }
 
@@ -479,6 +520,7 @@ export class CurationRepository {
           continue;
         }
         details.push({
+          requestId: request.id,
           kind: 'deletion',
           category: 'deletion',
           state: deletionInfo.item.state,
@@ -497,7 +539,7 @@ export class CurationRepository {
         continue;
       }
       details.push({
-        ...(administrator ? {requestId: request.id} : {}),
+        requestId: request.id,
         kind: 'metadata',
         category: request.category,
         state: request.state,

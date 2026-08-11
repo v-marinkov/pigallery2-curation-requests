@@ -223,7 +223,7 @@
     .pg-curation-dialog-content { padding: 1rem 1.25rem; }
     .pg-curation-dialog-header { display: flex; align-items: center; gap: 1rem; }
     .pg-curation-dialog-header h2 { flex: 1; margin: 0; font-size: 1.25rem; }
-    .pg-curation-dialog-close { border: 0; background: transparent; font-size: 1.5rem; }
+    .pg-curation-dialog-close { flex: 0 0 auto; }
     .pg-curation-request-detail { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(128,128,128,.35); }
     .pg-curation-request-detail p { margin: .35rem 0 0; white-space: pre-wrap; }
     .pg-curation-request-detail-header { display: flex; align-items: center; gap: .75rem; }
@@ -473,12 +473,48 @@
     modeSwitch.setAttribute('aria-checked', String(enabled));
   };
 
+  const ensureMyRequestsMenuItem = modeItem => {
+    if (!modeItem || document.getElementById('pg-curation-my-requests')) {
+      return;
+    }
+    const item = document.createElement('li');
+    item.id = 'pg-curation-my-requests';
+    item.setAttribute('role', 'menuitem');
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'dropdown-item';
+    const icon = document.createElement('span');
+    icon.className = 'me-2';
+    icon.setAttribute('aria-hidden', 'true');
+    icon.textContent = '✎';
+    const label = document.createElement('span');
+    label.textContent = 'My curation requests';
+    button.append(icon, label);
+    button.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      const requesterKeyword = requesterTagFor(TAG_REQUESTED_BY_PREFIX, currentUsername);
+      if (!requesterKeyword) {
+        return;
+      }
+      // PiGallery2 3.5.x SearchQueryUtils.urlify format:
+      // t=keyword(104), v=value, mt=exact_match(1).
+      const query = JSON.stringify({t: 104, v: requesterKeyword, mt: 1});
+      const target = new URL(`search/${encodeURIComponent(query)}`, document.baseURI);
+      globalThis.location.assign(target.href);
+    });
+    item.appendChild(button);
+    modeItem.parentNode?.insertBefore(item, modeItem.nextSibling);
+  };
+
   const ensureModeToggle = () => {
     if (Number(globalThis.ServerInject?.user?.role ?? 0) < 3) {
       return;
     }
-    if (document.getElementById('pg-curation-mode-toggle')) {
+    const existingItem = document.getElementById('pg-curation-mode-toggle');
+    if (existingItem) {
       updateModeToggle();
+      ensureMyRequestsMenuItem(existingItem);
       return;
     }
 
@@ -532,6 +568,7 @@
     row.append(label, switchContainer);
     item.appendChild(row);
     menu.insertBefore(item, anchorItem);
+    ensureMyRequestsMenuItem(item);
     updateModeToggle();
   };
 
@@ -550,9 +587,8 @@
     heading.textContent = 'Curation requests';
     const close = document.createElement('button');
     close.type = 'button';
-    close.className = 'pg-curation-dialog-close';
+    close.className = 'btn-close pg-curation-dialog-close';
     close.setAttribute('aria-label', 'Close');
-    close.textContent = '×';
     close.addEventListener('click', () => dialog.close());
     const body = document.createElement('div');
     body.className = 'pg-curation-dialog-body';
@@ -651,6 +687,45 @@
     }
   };
 
+  const cancelOwnRequest = async (request, mediaPath, section) => {
+    const label = CATEGORY_LABELS[request.category] || String(request.category);
+    if (!globalThis.confirm(`Cancel your ${label} request?\n\nOther users' requests are not affected.`)) {
+      return;
+    }
+    const buttons = section.querySelectorAll('.pg-curation-request-actions button');
+    buttons.forEach(button => { button.disabled = true; });
+    let status = section.querySelector('.pg-curation-request-action-status');
+    if (!status) {
+      status = document.createElement('div');
+      status.className = 'pg-curation-request-action-status';
+      section.appendChild(status);
+    }
+    status.classList.remove('text-danger');
+    status.textContent = 'Cancellation in progress…';
+    try {
+      await unwrapResponse(await fetch(
+        extensionEndpoint('cancel-own-request'),
+        {
+          method: 'POST',
+          credentials: 'same-origin',
+          cache: 'no-store',
+          headers: {'Content-Type': 'application/json', Accept: 'application/json'},
+          body: JSON.stringify({
+            media: mediaPath,
+            data: {customFields: {requestId: request.requestId, kind: request.kind}}
+          })
+        }
+      ));
+      status.textContent = 'Cancelled. Refreshing…';
+      globalThis.location.reload();
+    } catch (error) {
+      console.error(`[${EXTENSION_ID}] Could not cancel owned curation request.`, error);
+      status.classList.add('text-danger');
+      status.textContent = `Cancellation failed: ${error.message || error}`;
+      buttons.forEach(button => { button.disabled = false; });
+    }
+  };
+
   const renderRequestDetails = (requests, reviewContext = {}) => {
     const dialog = ensureDetailsDialog();
     const body = dialog.querySelector('.pg-curation-dialog-body');
@@ -723,6 +798,26 @@
           });
           actions.appendChild(decline);
           header.appendChild(actions);
+        }
+        if (
+          request.ownRequest === true && Number.isInteger(request.requestId) &&
+          request.requestId > 0 && typeof reviewContext.media === 'string' &&
+          reviewContext.media.length > 0
+        ) {
+          let actions = header.querySelector('.pg-curation-request-actions');
+          if (!actions) {
+            actions = document.createElement('div');
+            actions.className = 'pg-curation-request-actions';
+            header.appendChild(actions);
+          }
+          const cancel = document.createElement('button');
+          cancel.type = 'button';
+          cancel.className = 'btn btn-sm btn-outline-secondary';
+          cancel.textContent = 'Cancel mine';
+          cancel.addEventListener('click', () => {
+            void cancelOwnRequest(request, reviewContext.media, section);
+          });
+          actions.appendChild(cancel);
         }
         const metadata = document.createElement('div');
         const date = new Date(request.requestedAt);

@@ -174,6 +174,59 @@ describe('CurationRepository', () => {
     repository.close();
   });
 
+  it('cancels only the exact owned request while preserving other requesters', () => {
+    const repository = createRepository();
+    repository.requestDeletion({
+      relativePath: 'photo.jpg', mediaType: 'photo', fingerprint,
+      actor: {id: '1', name: 'anna'}
+    });
+    repository.requestDeletion({
+      relativePath: 'photo.jpg', mediaType: 'photo', fingerprint,
+      actor: {id: '2', name: 'bob'}
+    });
+    const deletionRequests = repository.getInfo('photo.jpg')!.requests;
+    const annaDeletion = deletionRequests.find(request => request.requestedByUserId === '1')!;
+    const bobDeletion = deletionRequests.find(request => request.requestedByUserId === '2')!;
+    assert.equal(
+      repository.withdrawOwnDeletionRequest(
+        'photo.jpg', {id: '1', name: 'anna'}, bobDeletion.id
+      ).status,
+      'not_requester'
+    );
+    repository.approve('photo.jpg', {id: '9', name: 'admin'}, fingerprint);
+    const withdrawn = repository.withdrawOwnDeletionRequest(
+      'photo.jpg', {id: '1', name: 'anna'}, annaDeletion.id
+    );
+    assert.equal(withdrawn.status, 'withdrawn');
+    assert.equal(withdrawn.item?.state, 'APPROVED');
+    assert.equal(withdrawn.remainingRequesters, 1);
+
+    repository.requestMetadata({
+      relativePath: 'photo.jpg', mediaType: 'photo', categories: ['faces', 'tags'],
+      actor: {id: '1', name: 'anna'}
+    });
+    const details = repository.getClientRequestDetails(
+      repository.getProjection('photo.jpg')!.itemToken!, {id: '1', name: 'anna'}, false
+    );
+    assert.ok(details.every(detail => Number.isInteger(detail.requestId)));
+    const faces = details.find(detail => detail.category === 'faces')!;
+    const tags = details.find(detail => detail.category === 'tags')!;
+    assert.throws(
+      () => repository.withdrawOwnMetadataRequest(
+        'photo.jpg', tags.requestId!, {id: '2', name: 'bob'}
+      ),
+      /owned by this user/
+    );
+    assert.equal(
+      repository.withdrawOwnMetadataRequest(
+        'photo.jpg', faces.requestId!, {id: '1', name: 'anna'}
+      ).state,
+      'WITHDRAWN'
+    );
+    assert.deepEqual(repository.getProjection('photo.jpg')?.metadataCategories, ['tags']);
+    repository.close();
+  });
+
   it('stores independent metadata categories and exposes comments only to owners or administrators', () => {
     const repository = createRepository();
     const first = repository.requestMetadata({
@@ -204,7 +257,7 @@ describe('CurationRepository', () => {
     );
     assert.deepEqual(ownerDetails.map(detail => detail.category), ['faces', 'location']);
     assert.ok(ownerDetails.every(detail => detail.ownRequest));
-    assert.ok(ownerDetails.every(detail => detail.requestId === undefined));
+    assert.ok(ownerDetails.every(detail => Number.isInteger(detail.requestId)));
     assert.equal(ownerDetails[0].comment, 'Please identify the grandparents');
     assert.deepEqual(
       repository.getClientRequestDetails(projection!.itemToken!, {id: '3', name: 'charlie'}, false),

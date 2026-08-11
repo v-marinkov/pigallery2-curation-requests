@@ -156,6 +156,7 @@ const server_1 = require("../server");
         strict_1.default.equal(guards.get('approve-deletion')?.role, UserDTO_1.UserRoles.User);
         strict_1.default.equal(guards.get('review-metadata-request')?.role, UserDTO_1.UserRoles.User);
         strict_1.default.equal(mediaRoutes.get('review-metadata-request')?.role, UserDTO_1.UserRoles.User);
+        strict_1.default.equal(mediaRoutes.get('cancel-own-request')?.role, UserDTO_1.UserRoles.User);
         strict_1.default.equal(jsonRoutes.get('client-permissions')?.role, UserDTO_1.UserRoles.User);
         strict_1.default.equal(jsonRoutes.get('request-details/:token')?.role, UserDTO_1.UserRoles.User);
         strict_1.default.deepEqual(jsonRoutes.get('client-permissions')?.callback(undefined, undefined, { id: 1, name: 'anna', role: UserDTO_1.UserRoles.User }), { userId: '1', userName: 'anna', canRequestCuration: true, canModerateCuration: false });
@@ -195,6 +196,8 @@ const server_1 = require("../server");
         const token = itemTag.split(':').at(-1);
         const ownerDetails = jsonRoutes.get('request-details/:token')?.callback({ token }, undefined, { id: 1, name: 'anna', role: UserDTO_1.UserRoles.User });
         strict_1.default.deepEqual(ownerDetails.requests.map((request) => request.category), ['deletion']);
+        strict_1.default.equal(ownerDetails.media, '2024/Christmas/photo.jpg');
+        strict_1.default.ok(Number.isInteger(ownerDetails.requests[0].requestId));
         const strangerDetails = jsonRoutes.get('request-details/:token')?.callback({ token }, undefined, { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User });
         strict_1.default.deepEqual(strangerDetails, { requests: [], media: null, canModerate: false });
         await buttons.get('Resolve metadata requests (admin only)').callback({}, { data: { customFields: { confirm: true } } }, { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
@@ -212,7 +215,10 @@ const server_1 = require("../server");
             output: { keywords: ['family'], size: { width: 1, height: 1 }, fileSize: 1, creationDate: 0 }
         });
         strict_1.default.ok(reindexed.keywords.includes('pg-curation:delete-approved'));
-        await buttons.get('Cancel my curation requests').callback({}, { data: { customFields: { confirm: true } } }, { id: 1, name: 'anna', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
+        await mediaRoutes.get('cancel-own-request').callback({}, { data: { customFields: {
+                    requestId: ownerDetails.requests[0].requestId,
+                    kind: 'deletion'
+                } } }, { id: 1, name: 'anna', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
         strict_1.default.deepEqual(media.metadata.keywords, ['family']);
         await buttons.get('Request curation').callback({}, { data: { customFields: {
                     faces: true,

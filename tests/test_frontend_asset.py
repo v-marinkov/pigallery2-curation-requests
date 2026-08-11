@@ -16,6 +16,10 @@ class FrontendAssetTests(unittest.TestCase):
         self.assertIn("menu.insertBefore(item, anchorItem)", source)
         self.assertIn("row.className = 'dropdown-item d-flex justify-content-between'", source)
         self.assertIn("switchContainer.className = 'form-check form-switch'", source)
+        self.assertIn("item.id = 'pg-curation-my-requests'", source)
+        self.assertIn("label.textContent = 'My curation requests'", source)
+        self.assertIn("JSON.stringify({t: 104, v: requesterKeyword, mt: 1})", source)
+        self.assertIn("globalThis.location.assign(target.href)", source)
         self.assertNotIn("document.getElementById('button-frame-menu')", source)
 
     def test_boolean_popup_headings_are_hidden_without_hiding_comment_label(self):
@@ -93,6 +97,20 @@ class FrontendAssetTests(unittest.TestCase):
         self.assertIn("request.kind === 'deletion'", source)
         self.assertIn("['PENDING', 'APPROVED', 'ERROR'].includes(request.state)", source)
         self.assertIn("photo-level deletion workflow for every requester", source)
+
+    def test_owner_can_cancel_one_owned_request(self):
+        source = FRONTEND_ASSET.read_text(encoding="utf-8")
+
+        self.assertIn("const cancelOwnRequest", source)
+        self.assertIn("extensionEndpoint('cancel-own-request')", source)
+        self.assertIn("request.ownRequest === true", source)
+        self.assertIn("cancel.textContent = 'Cancel mine'", source)
+
+    def test_details_dialog_uses_the_native_bootstrap_close_button(self):
+        source = FRONTEND_ASSET.read_text(encoding="utf-8")
+
+        self.assertIn("close.className = 'btn-close pg-curation-dialog-close'", source)
+        self.assertNotIn("close.textContent = '×'", source)
 
 
 if __name__ == "__main__":

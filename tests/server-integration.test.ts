@@ -136,6 +136,7 @@ it('executes general curation and deletion workflows without changing the photo'
     assert.equal(guards.get('approve-deletion')?.role, UserRoles.User);
     assert.equal(guards.get('review-metadata-request')?.role, UserRoles.User);
     assert.equal(mediaRoutes.get('review-metadata-request')?.role, UserRoles.User);
+    assert.equal(mediaRoutes.get('cancel-own-request')?.role, UserRoles.User);
     assert.equal(jsonRoutes.get('client-permissions')?.role, UserRoles.User);
     assert.equal(jsonRoutes.get('request-details/:token')?.role, UserRoles.User);
 
@@ -218,6 +219,8 @@ it('executes general curation and deletion workflows without changing the photo'
       {token}, undefined, {id: 1, name: 'anna', role: UserRoles.User}
     ) as any;
     assert.deepEqual(ownerDetails.requests.map((request: any) => request.category), ['deletion']);
+    assert.equal(ownerDetails.media, '2024/Christmas/photo.jpg');
+    assert.ok(Number.isInteger(ownerDetails.requests[0].requestId));
     const strangerDetails = jsonRoutes.get('request-details/:token')?.callback(
       {token}, undefined, {id: 2, name: 'bob', role: UserRoles.User}
     ) as any;
@@ -257,9 +260,15 @@ it('executes general curation and deletion workflows without changing the photo'
     });
     assert.ok(reindexed.keywords.includes('pg-curation:delete-approved'));
 
-    await buttons.get('Cancel my curation requests')!.callback(
-      {}, {data: {customFields: {confirm: true}}},
-      {id: 1, name: 'anna', role: UserRoles.User}, media, mediaRepository
+    await mediaRoutes.get('cancel-own-request')!.callback(
+      {},
+      {data: {customFields: {
+        requestId: ownerDetails.requests[0].requestId,
+        kind: 'deletion'
+      }}},
+      {id: 1, name: 'anna', role: UserRoles.User},
+      media,
+      mediaRepository
     );
     assert.deepEqual(media.metadata.keywords, ['family']);
 

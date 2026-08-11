@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CurationRepository = exports.CURATION_REPOSITORY_API_VERSION = void 0;
 const domain_1 = require("../domain");
 const paths_1 = require("../security/paths");
-exports.CURATION_REPOSITORY_API_VERSION = 6;
+exports.CURATION_REPOSITORY_API_VERSION = 7;
 const ITEM_SELECT = `
   SELECT id,
          relative_path AS relativePath,
@@ -167,19 +167,29 @@ class CurationRepository {
             return { status, item: this.itemById(item.id) };
         })();
     }
-    withdrawOwnDeletionRequest(relativePathInput, actor) {
+    withdrawOwnDeletionRequest(relativePathInput, actor, requestId) {
         const relativePath = (0, paths_1.normalizeRelativeMediaPath)(relativePathInput);
+        if (requestId !== undefined && (!Number.isInteger(requestId) || requestId <= 0)) {
+            throw new Error('A valid deletion request ID is required');
+        }
         return this.db.transaction(() => {
             const item = this.getItem(relativePath);
             if (!item || !['PENDING', 'APPROVED', 'ERROR'].includes(item.state)) {
                 return { status: 'not_requester', item, remainingRequesters: 0 };
             }
-            const request = this.db.prepare(`
-        SELECT id
-          FROM deletion_requests
-         WHERE deletion_item_id = ? AND cycle = ?
-           AND requested_by_user_id = ? AND withdrawn_at IS NULL
-      `).get(item.id, item.currentCycle, actor.id);
+            const request = requestId === undefined
+                ? this.db.prepare(`
+            SELECT id
+              FROM deletion_requests
+             WHERE deletion_item_id = ? AND cycle = ?
+               AND requested_by_user_id = ? AND withdrawn_at IS NULL
+          `).get(item.id, item.currentCycle, actor.id)
+                : this.db.prepare(`
+            SELECT id
+              FROM deletion_requests
+             WHERE id = ? AND deletion_item_id = ? AND cycle = ?
+               AND requested_by_user_id = ? AND withdrawn_at IS NULL
+          `).get(requestId, item.id, item.currentCycle, actor.id);
             if (!request) {
                 const remainingRequesters = this.activeRequesterCount(item.id, item.currentCycle);
                 return { status: 'not_requester', item, remainingRequesters };
@@ -252,6 +262,31 @@ class CurationRepository {
                 created.push(category);
             }
             return { created, existing };
+        })();
+    }
+    withdrawOwnMetadataRequest(relativePathInput, requestId, actor) {
+        const relativePath = (0, paths_1.normalizeRelativeMediaPath)(relativePathInput);
+        if (!Number.isInteger(requestId) || requestId <= 0) {
+            throw new Error('A valid metadata request ID is required');
+        }
+        return this.db.transaction(() => {
+            const request = this.db.prepare(`
+        ${METADATA_REQUEST_SELECT}
+         WHERE mr.id = ? AND cm.relative_path = ?
+           AND mr.requested_by_user_id = ? AND mr.state = 'OPEN'
+      `).get(requestId, relativePath, actor.id);
+            if (!request) {
+                throw new Error('This photo has no matching active metadata request owned by this user');
+            }
+            const timestamp = this.now();
+            this.db.prepare(`
+        UPDATE metadata_requests
+           SET state = 'WITHDRAWN', updated_at = ?,
+               closed_by_user_id = ?, closed_by_user_name = ?, closed_at = ?
+         WHERE id = ? AND requested_by_user_id = ? AND state = 'OPEN'
+      `).run(timestamp, actor.id, actor.name, timestamp, requestId, actor.id);
+            this.addMetadataEvent(requestId, 'WITHDRAWN', actor, timestamp, { granular: true });
+            return this.db.prepare(`${METADATA_REQUEST_SELECT} WHERE mr.id = ?`).get(requestId);
         })();
     }
     withdrawOwnCurationRequests(relativePathInput, actor) {
@@ -360,6 +395,7 @@ class CurationRepository {
                     continue;
                 }
                 details.push({
+                    requestId: request.id,
                     kind: 'deletion',
                     category: 'deletion',
                     state: deletionInfo.item.state,
@@ -376,7 +412,7 @@ class CurationRepository {
                 continue;
             }
             details.push({
-                ...(administrator ? { requestId: request.id } : {}),
+                requestId: request.id,
                 kind: 'metadata',
                 category: request.category,
                 state: request.state,

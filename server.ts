@@ -161,7 +161,7 @@ const cancelOwnRequestIcon = {
 };
 
 export const init = async (extension: IExtensionObject<CurationConfig>): Promise<void> => {
-  if (CURATION_REPOSITORY_API_VERSION !== 6) {
+  if (CURATION_REPOSITORY_API_VERSION !== 7) {
     throw new Error(
       'Incompatible curation-request files: replace server.js and the complete compiled src directory together'
     );
@@ -195,13 +195,14 @@ export const init = async (extension: IExtensionObject<CurationConfig>): Promise
         return {requests: [], media: null, canModerate: false};
       }
       const administrator = isAdministrator(user);
+      const requests = curationRepository!.getClientRequestDetails(
+        params.token,
+        actorFromUser(user),
+        administrator
+      );
       return {
-        requests: curationRepository!.getClientRequestDetails(
-          params.token,
-          actorFromUser(user),
-          administrator
-        ),
-        media: administrator
+        requests,
+        media: requests.length > 0
           ? curationRepository!.getRelativePathForToken(params.token)
           : null,
         canModerate: administrator
@@ -250,6 +251,49 @@ export const init = async (extension: IExtensionObject<CurationConfig>): Promise
         `${user.name}: ${outcomeValue.toLocaleLowerCase()} metadata request ${requestId} for ${mediaPaths.relativePath}`
       );
       return {requestId: result.id, state: result.state};
+    }
+  );
+
+  extension.RESTApi.post.mediaJsonResponse(
+    ['cancel-own-request'],
+    UserRoles.User,
+    true,
+    async (_params, body, user, media, mediaRepository) => {
+      const requestId = Number(body?.data?.customFields?.requestId);
+      const kind = body?.data?.customFields?.kind;
+      if (!Number.isInteger(requestId) || requestId <= 0) {
+        throw new Error('A valid curation request ID is required');
+      }
+      if (kind !== 'metadata' && kind !== 'deletion') {
+        throw new Error('Curation request kind must be metadata or deletion');
+      }
+      const mediaPaths = getMediaPaths(extension, media);
+      const actor = actorFromUser(user);
+      if (kind === 'metadata') {
+        curationRepository!.withdrawOwnMetadataRequest(
+          mediaPaths.relativePath,
+          requestId,
+          actor
+        );
+      } else {
+        const result = curationRepository!.withdrawOwnDeletionRequest(
+          mediaPaths.relativePath,
+          actor,
+          requestId
+        );
+        if (result.status !== 'withdrawn') {
+          throw new Error('This photo has no matching active deletion request owned by this user');
+        }
+      }
+      await saveCurationProjection(
+        media,
+        mediaRepository,
+        curationRepository!.getProjection(mediaPaths.relativePath)
+      );
+      extension.Logger.info(
+        `${user.name}: withdrew own ${kind} request ${requestId} for ${mediaPaths.relativePath}`
+      );
+      return {requestId, state: 'WITHDRAWN'};
     }
   );
 

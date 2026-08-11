@@ -14,6 +14,7 @@
 - Restored concurrent admin moderation controls, visually separated their pairs, and matched the details button to the circular hover treatment.
 - Added authenticated per-request metadata approval/decline in the details dialog and hid metadata moderation after deletion approval.
 - Exposed the existing photo-level deletion approval/decline operations alongside deletion rows in the details dialog.
+- Added ownership-checked row cancellation, a native My curation requests search shortcut, and the Bootstrap modal close control.
 - Extended the host review report to include metadata correction requests while keeping the deletion executor deletion-only.
 - Preserved the existing deletion schema, approval fingerprints, queue locking, and defensive executor.
 

@@ -31,11 +31,13 @@ Other functionality includes:
 - authenticated requester allowlists supporting `*`, `admin`, and named users;
 - multiple requesters and multiple correction categories on the same photo;
 - requester cancellation restricted to the authenticated user's own active requests;
+- row-level cancellation of one owned request from the request-details dialog;
 - administrator-only deletion approval and decline;
 - administrator-only resolution and dismissal of metadata requests;
 - in-gallery comment/details display for administrators and request owners;
 - flat saved searches for open work, every metadata category, and deletion states;
 - a per-user **Curation mode** toggle in PiGallery2's Tools menu;
+- a **My curation requests** Tools-menu shortcut using an exact native PiGallery keyword search;
 - a read-only host report covering metadata and deletion work;
 - a dry-run-by-default, fingerprint-verifying deletion executor;
 - automatic migration of existing version-1 deletion databases.
@@ -101,6 +103,8 @@ All curation buttons are hidden while Curation mode is disabled. When enabled:
 
 Cancelling withdraws all active requests made by that user for that photo. It never affects requests made by another account.
 
+The details dialog also offers **Cancel mine** for each request owned by the authenticated user. Metadata cancellation withdraws only that `OPEN` row. Deletion cancellation works while the photo-level deletion state is `PENDING`, `APPROVED`, or `ERROR`; if other deletion requesters remain, their workflow continues, and cancelling the final deletion request removes the photo from the active deletion queue.
+
 Resolving or dismissing metadata currently closes every open non-deletion request on that photo in one administrator action. Deletion state remains independent.
 
 Deletion is an exclusive request choice for each requester. Selecting it clears and disables the metadata categories in the popup, and the server ignores metadata flags in any request that also contains deletion. A user who owns an active deletion request cannot add metadata requests for that photo, even by bypassing the frontend; other users remain free to report metadata problems. Therefore metadata and deletion moderation pairs may coexist for administrators when different users have submitted the two kinds of request; colored outlines distinguish them.
@@ -110,6 +114,8 @@ Granular metadata **Approve** closes exactly that request as `RESOLVED`; granula
 ## Curation mode
 
 The frontend script inserts a **Curation mode** switch inside PiGallery2's lazily rendered **Tools** submenu, immediately before **Fix navbar**. If that control is unavailable, **Auto update gallery** is used as the fallback position.
+
+Directly beneath it, **My curation requests** opens PiGallery's native search with an exact match for the authenticated user's active synthetic requester keyword. It creates no saved album and therefore adds no per-user entries to the shared Albums page.
 
 - It defaults to disabled for a user who has not selected a preference.
 - Its value is stored in browser `localStorage`, keyed by PiGallery2 user ID.
