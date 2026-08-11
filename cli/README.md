@@ -64,6 +64,8 @@ Then execute the approved queue:
 
 The command processes **only deletion items currently in `APPROVED` state**. Metadata correction requests can never enter this executor. It verifies root containment, file size, modification time, and SHA-256 before deletion. Immediately before unlinking, it locks and rechecks the queue entry; an item cancelled since the initial queue read is safely skipped. Successful records become `EXECUTED`; failures become `ERROR`.
 
+After a successful execution, run PiGallery2's indexing job so its separate media database removes entries for the now-missing files. The curation database deliberately retains `EXECUTED` rows as audit history.
+
 Run it as the least-privileged host account that can write the photo root and curation database. Root is not intrinsically required.
 
 After execution, run PiGallery2's indexing job so deleted photos disappear from the gallery.

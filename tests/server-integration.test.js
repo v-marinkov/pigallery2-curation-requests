@@ -123,6 +123,8 @@ const server_1 = require("../server");
         await (0, server_1.init)(extension);
         strict_1.default.deepEqual(albums, [
             '✎ Curation · All open',
+            '✎ Curation · Pending metadata',
+            '✓ Curation · Approved metadata',
             '✎ Curation · Faces',
             '✎ Curation · Tags',
             '✎ Curation · Location',
@@ -149,9 +151,13 @@ const server_1 = require("../server");
             '🗑 Request deletion'
         ]);
         strict_1.default.equal(buttons.get('Cancel my curation requests')?.config.minUserRole, UserDTO_1.UserRoles.User);
-        strict_1.default.equal(buttons.get('Resolve metadata requests (admin only)')?.config.minUserRole, UserDTO_1.UserRoles.Admin);
+        strict_1.default.equal(buttons.get('Approve all metadata requests (admin only)')?.config.minUserRole, UserDTO_1.UserRoles.Admin);
+        strict_1.default.equal(buttons.get('Mark all metadata requests done (admin only)')?.config.minUserRole, UserDTO_1.UserRoles.Admin);
+        strict_1.default.equal(buttons.get('Decline all metadata requests (admin only)')?.config.minUserRole, UserDTO_1.UserRoles.Admin);
         strict_1.default.equal(buttons.get('Approve deletion (admin only)')?.config.minUserRole, UserDTO_1.UserRoles.Admin);
-        strict_1.default.equal(apiRoles.get('Resolve metadata requests (admin only)'), UserDTO_1.UserRoles.Admin);
+        strict_1.default.equal(apiRoles.get('Approve all metadata requests (admin only)'), UserDTO_1.UserRoles.Admin);
+        strict_1.default.equal(apiRoles.get('Mark all metadata requests done (admin only)'), UserDTO_1.UserRoles.Admin);
+        strict_1.default.equal(apiRoles.get('Decline all metadata requests (admin only)'), UserDTO_1.UserRoles.Admin);
         strict_1.default.equal(guards.get('request-curation')?.role, UserDTO_1.UserRoles.User);
         strict_1.default.equal(guards.get('approve-deletion')?.role, UserDTO_1.UserRoles.User);
         strict_1.default.equal(guards.get('review-metadata-request')?.role, UserDTO_1.UserRoles.User);
@@ -200,7 +206,7 @@ const server_1 = require("../server");
         strict_1.default.ok(Number.isInteger(ownerDetails.requests[0].requestId));
         const strangerDetails = jsonRoutes.get('request-details/:token')?.callback({ token }, undefined, { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User });
         strict_1.default.deepEqual(strangerDetails, { requests: [], media: null, canModerate: false });
-        await buttons.get('Resolve metadata requests (admin only)').callback({}, { data: { customFields: { confirm: true } } }, { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
+        await buttons.get('Approve all metadata requests (admin only)').callback({}, { data: { customFields: { confirm: true } } }, { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
         await buttons.get('Approve deletion (admin only)').callback({}, { data: { customFields: { confirm: true } } }, { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
         const dbPath = path.join(databaseRoot, 'curation', 'curation.sqlite');
         const database = new better_sqlite3_1.default(dbPath, { readonly: true });
@@ -227,6 +233,7 @@ const server_1 = require("../server");
                 } } }, { id: 1, name: 'anna', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
         strict_1.default.ok(media.metadata.keywords.includes('pg-curation:category:faces'));
         strict_1.default.ok(media.metadata.keywords.includes('pg-curation:category:other'));
+        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:metadata-pending'));
         strict_1.default.ok(!media.metadata.keywords.includes('pg-curation:delete-pending'));
         strict_1.default.ok(!media.metadata.keywords.some((keyword) => keyword.startsWith('pg-curation:delete-requested-by:')));
         const metadataToken = media.metadata.keywords
@@ -240,13 +247,20 @@ const server_1 = require("../server");
         await mediaRoutes.get('review-metadata-request').callback({}, { data: { customFields: { requestId: facesRequest.requestId, outcome: 'APPROVED' } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
         strict_1.default.ok(media.metadata.keywords.includes('pg-curation:category:faces'));
         strict_1.default.ok(media.metadata.keywords.includes('pg-curation:category:other'));
+        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:metadata-pending'));
+        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:metadata-approved'));
         const approvedMetadataDetails = jsonRoutes.get('request-details/:token')?.callback({ token: metadataToken }, undefined, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin });
         strict_1.default.equal(approvedMetadataDetails.requests.find((request) => request.requestId === facesRequest.requestId).state, 'APPROVED');
         await mediaRoutes.get('review-metadata-request').callback({}, { data: { customFields: { requestId: facesRequest.requestId, outcome: 'RESOLVED' } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
         strict_1.default.ok(!media.metadata.keywords.includes('pg-curation:category:faces'));
-        await buttons.get('Resolve metadata requests (admin only)').callback({}, { data: { customFields: { confirm: true, resolutionComment: 'XMP fixed' } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
+        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:metadata-pending'));
+        strict_1.default.ok(!media.metadata.keywords.includes('pg-curation:metadata-approved'));
+        await buttons.get('Approve all metadata requests (admin only)').callback({}, { data: { customFields: { confirm: true } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
+        strict_1.default.ok(!media.metadata.keywords.includes('pg-curation:metadata-pending'));
+        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:metadata-approved'));
+        await buttons.get('Mark all metadata requests done (admin only)').callback({}, { data: { customFields: { confirm: true, resolutionComment: 'XMP fixed' } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
         strict_1.default.deepEqual(media.metadata.keywords, ['family']);
-        strict_1.default.equal(saved.length, 7);
+        strict_1.default.equal(saved.length, 8);
         strict_1.default.ok(warnings.some(message => message.includes('blocked unauthorized attempt')));
     }
     finally {

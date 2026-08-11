@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CurationRepository = exports.CURATION_REPOSITORY_API_VERSION = void 0;
 const domain_1 = require("../domain");
 const paths_1 = require("../security/paths");
-exports.CURATION_REPOSITORY_API_VERSION = 8;
+exports.CURATION_REPOSITORY_API_VERSION = 9;
 const ITEM_SELECT = `
   SELECT id,
          relative_path AS relativePath,
@@ -110,6 +110,8 @@ class CurationRepository {
                 ])],
             deletionRequesterNames,
             metadataCategories: metadataRequests.map(request => request.category),
+            metadataPending: metadataRequests.some(request => request.approvedAt === null),
+            metadataApproved: metadataRequests.some(request => request.approvedAt !== null),
             itemToken: media?.publicToken || null
         };
     }
@@ -322,11 +324,24 @@ class CurationRepository {
         const relativePath = (0, paths_1.normalizeRelativeMediaPath)(relativePathInput);
         const comment = this.normalizeComment(resolutionComment);
         return this.db.transaction(() => {
+            if (outcome === 'RESOLVED') {
+                const pending = this.db.prepare(`
+          SELECT 1
+            FROM metadata_requests mr
+            JOIN curation_media cm ON cm.id = mr.curation_media_id
+           WHERE cm.relative_path = ? AND mr.state = 'OPEN' AND mr.approved_at IS NULL
+           LIMIT 1
+        `).get(relativePath);
+                if (pending) {
+                    throw new Error('All metadata correction requests must be approved before they can be marked done');
+                }
+            }
             const requests = this.db.prepare(`
         SELECT mr.id
           FROM metadata_requests mr
           JOIN curation_media cm ON cm.id = mr.curation_media_id
          WHERE cm.relative_path = ? AND mr.state = 'OPEN'
+           ${outcome === 'RESOLVED' ? 'AND mr.approved_at IS NOT NULL' : ''}
       `).all(relativePath);
             if (requests.length === 0) {
                 throw new Error('This photo has no open metadata correction requests');
@@ -341,6 +356,31 @@ class CurationRepository {
            WHERE id = ? AND state = 'OPEN'
         `).run(outcome, timestamp, actor.id, actor.name, timestamp, comment, request.id);
                 this.addMetadataEvent(request.id, outcome, actor, timestamp, { comment });
+            }
+            return requests.length;
+        })();
+    }
+    approveMetadataRequests(relativePathInput, actor) {
+        const relativePath = (0, paths_1.normalizeRelativeMediaPath)(relativePathInput);
+        return this.db.transaction(() => {
+            const requests = this.db.prepare(`
+        SELECT mr.id
+          FROM metadata_requests mr
+          JOIN curation_media cm ON cm.id = mr.curation_media_id
+         WHERE cm.relative_path = ? AND mr.state = 'OPEN' AND mr.approved_at IS NULL
+      `).all(relativePath);
+            if (requests.length === 0) {
+                throw new Error('This photo has no pending metadata correction requests to approve');
+            }
+            const timestamp = this.now();
+            for (const request of requests) {
+                this.db.prepare(`
+          UPDATE metadata_requests
+             SET updated_at = ?, approved_by_user_id = ?,
+                 approved_by_user_name = ?, approved_at = ?
+           WHERE id = ? AND state = 'OPEN' AND approved_at IS NULL
+        `).run(timestamp, actor.id, actor.name, timestamp, request.id);
+                this.addMetadataEvent(request.id, 'APPROVED', actor, timestamp, { bulk: true });
             }
             return requests.length;
         })();

@@ -85,6 +85,8 @@ export const saveCurationProjection = async (
 export const ensureSavedSearches = async (extension: IExtensionObject<unknown>): Promise<void> => {
   const searches: Array<{name: string; keyword: string}> = [
     {name: '✎ Curation · All open', keyword: 'pg-curation:open'},
+    {name: '✎ Curation · Pending metadata', keyword: 'pg-curation:metadata-pending'},
+    {name: '✓ Curation · Approved metadata', keyword: 'pg-curation:metadata-approved'},
     {name: '✎ Curation · Faces', keyword: 'pg-curation:category:faces'},
     {name: '✎ Curation · Tags', keyword: 'pg-curation:category:tags'},
     {name: '✎ Curation · Location', keyword: 'pg-curation:category:location'},

@@ -97,6 +97,8 @@ it('executes general curation and deletion workflows without changing the photo'
     await init(extension);
     assert.deepEqual(albums, [
       '✎ Curation · All open',
+      '✎ Curation · Pending metadata',
+      '✓ Curation · Approved metadata',
       '✎ Curation · Faces',
       '✎ Curation · Tags',
       '✎ Curation · Location',
@@ -129,9 +131,13 @@ it('executes general curation and deletion workflows without changing the photo'
       ]
     );
     assert.equal(buttons.get('Cancel my curation requests')?.config.minUserRole, UserRoles.User);
-    assert.equal(buttons.get('Resolve metadata requests (admin only)')?.config.minUserRole, UserRoles.Admin);
+    assert.equal(buttons.get('Approve all metadata requests (admin only)')?.config.minUserRole, UserRoles.Admin);
+    assert.equal(buttons.get('Mark all metadata requests done (admin only)')?.config.minUserRole, UserRoles.Admin);
+    assert.equal(buttons.get('Decline all metadata requests (admin only)')?.config.minUserRole, UserRoles.Admin);
     assert.equal(buttons.get('Approve deletion (admin only)')?.config.minUserRole, UserRoles.Admin);
-    assert.equal(apiRoles.get('Resolve metadata requests (admin only)'), UserRoles.Admin);
+    assert.equal(apiRoles.get('Approve all metadata requests (admin only)'), UserRoles.Admin);
+    assert.equal(apiRoles.get('Mark all metadata requests done (admin only)'), UserRoles.Admin);
+    assert.equal(apiRoles.get('Decline all metadata requests (admin only)'), UserRoles.Admin);
     assert.equal(guards.get('request-curation')?.role, UserRoles.User);
     assert.equal(guards.get('approve-deletion')?.role, UserRoles.User);
     assert.equal(guards.get('review-metadata-request')?.role, UserRoles.User);
@@ -226,7 +232,7 @@ it('executes general curation and deletion workflows without changing the photo'
     ) as any;
     assert.deepEqual(strangerDetails, {requests: [], media: null, canModerate: false});
 
-    await buttons.get('Resolve metadata requests (admin only)')!.callback(
+    await buttons.get('Approve all metadata requests (admin only)')!.callback(
       {}, {data: {customFields: {confirm: true}}},
       {id: 2, name: 'bob', role: UserRoles.User}, media, mediaRepository
     );
@@ -285,6 +291,7 @@ it('executes general curation and deletion workflows without changing the photo'
     );
     assert.ok(media.metadata.keywords.includes('pg-curation:category:faces'));
     assert.ok(media.metadata.keywords.includes('pg-curation:category:other'));
+    assert.ok(media.metadata.keywords.includes('pg-curation:metadata-pending'));
     assert.ok(!media.metadata.keywords.includes('pg-curation:delete-pending'));
     assert.ok(!media.metadata.keywords.some(
       (keyword: string) => keyword.startsWith('pg-curation:delete-requested-by:')
@@ -311,6 +318,8 @@ it('executes general curation and deletion workflows without changing the photo'
     );
     assert.ok(media.metadata.keywords.includes('pg-curation:category:faces'));
     assert.ok(media.metadata.keywords.includes('pg-curation:category:other'));
+    assert.ok(media.metadata.keywords.includes('pg-curation:metadata-pending'));
+    assert.ok(media.metadata.keywords.includes('pg-curation:metadata-approved'));
     const approvedMetadataDetails = jsonRoutes.get('request-details/:token')?.callback(
       {token: metadataToken}, undefined, {id: 9, name: 'admin', role: UserRoles.Admin}
     ) as any;
@@ -328,13 +337,22 @@ it('executes general curation and deletion workflows without changing the photo'
       mediaRepository
     );
     assert.ok(!media.metadata.keywords.includes('pg-curation:category:faces'));
+    assert.ok(media.metadata.keywords.includes('pg-curation:metadata-pending'));
+    assert.ok(!media.metadata.keywords.includes('pg-curation:metadata-approved'));
 
-    await buttons.get('Resolve metadata requests (admin only)')!.callback(
+    await buttons.get('Approve all metadata requests (admin only)')!.callback(
+      {}, {data: {customFields: {confirm: true}}},
+      {id: 9, name: 'admin', role: UserRoles.Admin}, media, mediaRepository
+    );
+    assert.ok(!media.metadata.keywords.includes('pg-curation:metadata-pending'));
+    assert.ok(media.metadata.keywords.includes('pg-curation:metadata-approved'));
+
+    await buttons.get('Mark all metadata requests done (admin only)')!.callback(
       {}, {data: {customFields: {confirm: true, resolutionComment: 'XMP fixed'}}},
       {id: 9, name: 'admin', role: UserRoles.Admin}, media, mediaRepository
     );
     assert.deepEqual(media.metadata.keywords, ['family']);
-    assert.equal(saved.length, 7);
+    assert.equal(saved.length, 8);
     assert.ok(warnings.some(message => message.includes('blocked unauthorized attempt')));
   } finally {
     await cleanUp();

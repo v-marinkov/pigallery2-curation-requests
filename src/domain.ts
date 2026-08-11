@@ -7,6 +7,8 @@ export const TAG_DELETE_REQUESTED_BY_PREFIX = `${CURATION_PREFIX}delete-requeste
 export const TAG_CURATION_OPEN = `${CURATION_PREFIX}open`;
 export const TAG_CATEGORY_PREFIX = `${CURATION_PREFIX}category:`;
 export const TAG_ITEM_PREFIX = `${CURATION_PREFIX}item:`;
+export const TAG_METADATA_PENDING = `${CURATION_PREFIX}metadata-pending`;
+export const TAG_METADATA_APPROVED = `${CURATION_PREFIX}metadata-approved`;
 
 export const DELETION_STATES = ['PENDING', 'APPROVED', 'DECLINED', 'EXECUTED', 'ERROR'] as const;
 export type DeletionState = typeof DELETION_STATES[number];
@@ -95,6 +97,8 @@ export interface CurationProjection {
   requesterNames: string[];
   deletionRequesterNames?: string[];
   metadataCategories?: MetadataCategory[];
+  metadataPending?: boolean;
+  metadataApproved?: boolean;
   itemToken?: string | null;
 }
 
@@ -156,9 +160,17 @@ export const applyCurationProjection = (
     result.push(tag);
   }
   const metadataCategories = [...new Set(projection?.metadataCategories || [])];
+  const metadataPending = projection?.metadataPending ?? metadataCategories.length > 0;
+  const metadataApproved = projection?.metadataApproved ?? false;
   const activeDeletion = Boolean(tag);
   if (projection && (activeDeletion || metadataCategories.length > 0)) {
     result.push(TAG_CURATION_OPEN);
+    if (metadataPending) {
+      result.push(TAG_METADATA_PENDING);
+    }
+    if (metadataApproved) {
+      result.push(TAG_METADATA_APPROVED);
+    }
     for (const category of metadataCategories) {
       result.push(`${TAG_CATEGORY_PREFIX}${category}`);
     }

@@ -6,6 +6,8 @@
   const TAG_DELETE_PENDING = 'pg-curation:delete-pending';
   const TAG_DELETE_APPROVED = 'pg-curation:delete-approved';
   const TAG_DELETE_ERROR = 'pg-curation:delete-error';
+  const TAG_METADATA_PENDING = 'pg-curation:metadata-pending';
+  const TAG_METADATA_APPROVED = 'pg-curation:metadata-approved';
   const TAG_CATEGORY_PREFIX = 'pg-curation:category:';
   const TAG_REQUESTED_BY_PREFIX = 'pg-curation:requested-by:';
   const TAG_DELETE_REQUESTED_BY_PREFIX = 'pg-curation:delete-requested-by:';
@@ -17,8 +19,9 @@
   const ACTION_TITLES = [
     'Request curation',
     'Cancel my curation requests',
-    'Resolve metadata requests (admin only)',
-    'Dismiss metadata requests (admin only)',
+    'Approve all metadata requests (admin only)',
+    'Mark all metadata requests done (admin only)',
+    'Decline all metadata requests (admin only)',
     'Approve deletion (admin only)',
     'Decline deletion (admin only)'
   ];
@@ -111,8 +114,9 @@
     .pg-curation-deletion-warning { display: block; margin-top: .35rem; }
     .pg-curation-disabled-option { opacity: .5; }
 
-    html[data-pg-can-moderate-curation="false"] button[title="Resolve metadata requests (admin only)"],
-    html[data-pg-can-moderate-curation="false"] button[title="Dismiss metadata requests (admin only)"],
+    html[data-pg-can-moderate-curation="false"] button[title="Approve all metadata requests (admin only)"],
+    html[data-pg-can-moderate-curation="false"] button[title="Mark all metadata requests done (admin only)"],
+    html[data-pg-can-moderate-curation="false"] button[title="Decline all metadata requests (admin only)"],
     html[data-pg-can-moderate-curation="false"] button[title="Approve deletion (admin only)"],
     html[data-pg-can-moderate-curation="false"] button[title="Decline deletion (admin only)"] {
       display: none !important;
@@ -121,8 +125,12 @@
     ${actionSelectorsFor('.photo-container:not(.pg-curation-classified)')},
     .photo-container:not(.pg-curation-classified) .pg-curation-details-button,
     .photo-container:not(.pg-curation-requested-by-me) button[title="Cancel my curation requests"],
-    .photo-container:not(.pg-curation-has-metadata) button[title="Resolve metadata requests (admin only)"],
-    .photo-container:not(.pg-curation-has-metadata) button[title="Dismiss metadata requests (admin only)"],
+    .photo-container:not(.pg-curation-has-metadata) button[title="Approve all metadata requests (admin only)"],
+    .photo-container:not(.pg-curation-has-metadata) button[title="Mark all metadata requests done (admin only)"],
+    .photo-container:not(.pg-curation-has-metadata) button[title="Decline all metadata requests (admin only)"],
+    .photo-container:not(.pg-curation-metadata-pending) button[title="Approve all metadata requests (admin only)"],
+    .photo-container.pg-curation-metadata-pending button[title="Mark all metadata requests done (admin only)"],
+    .photo-container:not(.pg-curation-metadata-approved) button[title="Mark all metadata requests done (admin only)"],
     .photo-container:not(.pg-curation-delete-pending) button[title="Approve deletion (admin only)"],
     .photo-container:not(.pg-curation-has-deletion) button[title="Decline deletion (admin only)"] {
       display: none !important;
@@ -147,10 +155,34 @@
 
     /* When both workflows coexist, colored outlines distinguish the two
        moderation pairs without changing their independent behavior. */
-    .photo-container button[title="Resolve metadata requests (admin only)"],
-    .photo-container button[title="Dismiss metadata requests (admin only)"] {
+    .photo-container button[title="Approve all metadata requests (admin only)"],
+    .photo-container button[title="Decline all metadata requests (admin only)"] {
       outline: 2px solid rgba(13, 110, 253, .9);
       outline-offset: 1px;
+    }
+
+    .photo-container button[title="Approve all metadata requests (admin only)"] {
+      color: #fff !important;
+      border-color: var(--bs-primary, #0d6efd) !important;
+      background: var(--bs-primary, #0d6efd) !important;
+    }
+
+    .photo-container button[title="Mark all metadata requests done (admin only)"] {
+      color: #fff !important;
+      border-color: var(--bs-success, #198754) !important;
+      background: var(--bs-success, #198754) !important;
+      outline: 2px solid rgba(25, 135, 84, .95);
+      outline-offset: 1px;
+    }
+
+    .photo-container button[title="Approve all metadata requests (admin only)"]:hover,
+    .photo-container button[title="Approve all metadata requests (admin only)"]:focus-visible {
+      background: #0b5ed7 !important;
+    }
+
+    .photo-container button[title="Mark all metadata requests done (admin only)"]:hover,
+    .photo-container button[title="Mark all metadata requests done (admin only)"]:focus-visible {
+      background: #157347 !important;
     }
 
     .photo-container button[title="Approve deletion (admin only)"],
@@ -159,8 +191,9 @@
       outline-offset: 1px;
     }
 
-    .photo-container.pg-curation-delete-approved button[title="Resolve metadata requests (admin only)"],
-    .photo-container.pg-curation-delete-approved button[title="Dismiss metadata requests (admin only)"] {
+    .photo-container.pg-curation-delete-approved button[title="Approve all metadata requests (admin only)"],
+    .photo-container.pg-curation-delete-approved button[title="Mark all metadata requests done (admin only)"],
+    .photo-container.pg-curation-delete-approved button[title="Decline all metadata requests (admin only)"] {
       display: none !important;
     }
 
@@ -365,6 +398,8 @@
     const keywordText = photoContainer.querySelector('.photo-keywords')?.textContent ?? '';
     const token = itemTokenFrom(keywordText);
     const hasMetadata = keywordText.includes(TAG_CATEGORY_PREFIX);
+    const metadataPending = keywordText.includes(TAG_METADATA_PENDING);
+    const metadataApproved = keywordText.includes(TAG_METADATA_APPROVED);
     const deletionPending = keywordText.includes(TAG_DELETE_PENDING);
     const deletionApproved = keywordText.includes(TAG_DELETE_APPROVED);
     const deletionError = keywordText.includes(TAG_DELETE_ERROR);
@@ -372,6 +407,8 @@
     photoContainer.dataset.pgCurationItemToken = token;
     photoContainer.classList.toggle('pg-curation-present', keywordText.includes(TAG_PREFIX));
     photoContainer.classList.toggle('pg-curation-has-metadata', hasMetadata);
+    photoContainer.classList.toggle('pg-curation-metadata-pending', metadataPending);
+    photoContainer.classList.toggle('pg-curation-metadata-approved', metadataApproved);
     photoContainer.classList.toggle('pg-curation-delete-pending', deletionPending);
     photoContainer.classList.toggle('pg-curation-delete-approved', deletionApproved);
     photoContainer.classList.toggle(

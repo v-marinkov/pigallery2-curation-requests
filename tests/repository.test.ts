@@ -395,6 +395,15 @@ describe('CurationRepository', () => {
     const withdrawn = repository.withdrawOwnCurationRequests('photo.jpg', {id: '1', name: 'anna'});
     assert.deepEqual(withdrawn, {deletionWithdrawn: false, metadataWithdrawn: 2});
     assert.deepEqual(repository.getProjection('photo.jpg')?.metadataCategories, ['tags']);
+    assert.throws(
+      () => repository.closeMetadataRequests(
+        'photo.jpg', {id: '9', name: 'admin'}, 'RESOLVED', 'not approved yet'
+      ),
+      /must be approved/
+    );
+    assert.equal(repository.approveMetadataRequests('photo.jpg', {id: '9', name: 'admin'}), 1);
+    assert.equal(repository.getProjection('photo.jpg')?.metadataPending, false);
+    assert.equal(repository.getProjection('photo.jpg')?.metadataApproved, true);
     assert.equal(
       repository.closeMetadataRequests('photo.jpg', {id: '9', name: 'admin'}, 'RESOLVED', 'fixed XMP'),
       1
@@ -456,6 +465,7 @@ describe('security and synthetic metadata', () => {
         'family',
         'pg-curation:delete-pending',
         'pg-curation:open',
+        'pg-curation:metadata-pending',
         'pg-curation:category:faces',
         'pg-curation:requested-by:anna',
         'pg-curation:requested-by:bob',

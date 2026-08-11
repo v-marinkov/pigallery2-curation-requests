@@ -72,11 +72,22 @@ class FrontendAssetTests(unittest.TestCase):
         source = FRONTEND_ASSET.read_text(encoding="utf-8")
 
         self.assertNotIn(
-            '.photo-container.pg-curation-has-deletion button[title="Resolve metadata requests',
+            '.photo-container.pg-curation-has-deletion button[title="Approve all metadata requests',
             source,
         )
         self.assertIn("outline: 2px solid rgba(13, 110, 253, .9)", source)
         self.assertIn("outline: 2px solid rgba(220, 53, 69, .95)", source)
+
+    def test_batch_metadata_control_advances_from_approve_to_done(self):
+        source = FRONTEND_ASSET.read_text(encoding="utf-8")
+
+        self.assertIn("TAG_METADATA_PENDING = 'pg-curation:metadata-pending'", source)
+        self.assertIn("TAG_METADATA_APPROVED = 'pg-curation:metadata-approved'", source)
+        self.assertIn('button[title="Approve all metadata requests (admin only)"]', source)
+        self.assertIn('button[title="Mark all metadata requests done (admin only)"]', source)
+        self.assertIn('.pg-curation-metadata-pending button[title="Mark all metadata', source)
+        self.assertIn("background: var(--bs-primary, #0d6efd)", source)
+        self.assertIn("background: var(--bs-success, #198754)", source)
 
     def test_admin_can_review_individual_metadata_requests(self):
         source = FRONTEND_ASSET.read_text(encoding="utf-8")

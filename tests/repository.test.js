@@ -311,6 +311,10 @@ const fingerprint = {
         const withdrawn = repository.withdrawOwnCurationRequests('photo.jpg', { id: '1', name: 'anna' });
         strict_1.default.deepEqual(withdrawn, { deletionWithdrawn: false, metadataWithdrawn: 2 });
         strict_1.default.deepEqual(repository.getProjection('photo.jpg')?.metadataCategories, ['tags']);
+        strict_1.default.throws(() => repository.closeMetadataRequests('photo.jpg', { id: '9', name: 'admin' }, 'RESOLVED', 'not approved yet'), /must be approved/);
+        strict_1.default.equal(repository.approveMetadataRequests('photo.jpg', { id: '9', name: 'admin' }), 1);
+        strict_1.default.equal(repository.getProjection('photo.jpg')?.metadataPending, false);
+        strict_1.default.equal(repository.getProjection('photo.jpg')?.metadataApproved, true);
         strict_1.default.equal(repository.closeMetadataRequests('photo.jpg', { id: '9', name: 'admin' }, 'RESOLVED', 'fixed XMP'), 1);
         strict_1.default.equal(repository.getProjection('photo.jpg'), null);
         strict_1.default.throws(() => repository.closeMetadataRequests('photo.jpg', { id: '9', name: 'admin' }, 'DISMISSED'), /no open metadata/);
@@ -351,6 +355,7 @@ const fingerprint = {
             'family',
             'pg-curation:delete-pending',
             'pg-curation:open',
+            'pg-curation:metadata-pending',
             'pg-curation:category:faces',
             'pg-curation:requested-by:anna',
             'pg-curation:requested-by:bob',

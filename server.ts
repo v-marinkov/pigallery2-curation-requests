@@ -161,7 +161,7 @@ const cancelOwnRequestIcon = {
 };
 
 export const init = async (extension: IExtensionObject<CurationConfig>): Promise<void> => {
-  if (CURATION_REPOSITORY_API_VERSION !== 8) {
+  if (CURATION_REPOSITORY_API_VERSION !== 9) {
     throw new Error(
       'Incompatible curation-request files: replace server.js and the complete compiled src directory together'
     );
@@ -447,28 +447,60 @@ export const init = async (extension: IExtensionObject<CurationConfig>): Promise
     );
   });
 
-  addAdministratorGuard(extension, 'resolve-metadata-requests', 'resolve', 'metadata requests');
+  addAdministratorGuard(extension, 'approve-all-metadata-requests', 'approve', 'all metadata requests');
   addMediaButtonWithApiRole(extension, {
-    name: 'Resolve metadata requests (admin only)',
+    name: 'Approve all metadata requests (admin only)',
     svgIcon: approveIcon,
-    apiPath: 'resolve-metadata-requests',
+    apiPath: 'approve-all-metadata-requests',
     minUserRole: UserRoles.Admin,
     skipVideos: true,
     reloadContent: true,
     popup: {
-      header: 'Resolve metadata requests?',
-      body: 'Marks every open non-deletion request for this photo as resolved.',
-      buttonString: 'Mark resolved',
+      header: 'Approve all metadata requests?',
+      body: 'Accepts every pending metadata request for this photo as manual work to complete.',
+      buttonString: 'Approve all',
       customFields: [
-        {id: 'resolutionComment', label: 'Resolution comment (optional)', type: 'string', defaultValue: ''},
-        {id: 'confirm', label: 'Yes, these corrections are resolved', type: 'boolean', defaultValue: false, required: true}
+        {id: 'confirm', label: 'Yes, approve all pending metadata requests', type: 'boolean', defaultValue: false, required: true}
       ]
     }
   }, UserRoles.Admin, async (
     _params, body, user, media, mediaRepository
   ): Promise<void> => {
     if (!isAdministrator(user)) {
-      extension.Logger.warn(`${user.name}: blocked unauthorized attempt to resolve metadata requests`);
+      extension.Logger.warn(`${user.name}: blocked unauthorized attempt to approve all metadata requests`);
+      return;
+    }
+    requireConfirmation(body);
+    const mediaPaths = getMediaPaths(extension, media);
+    curationRepository!.approveMetadataRequests(
+      mediaPaths.relativePath,
+      actorFromUser(user)
+    );
+    await saveCurationProjection(media, mediaRepository, curationRepository!.getProjection(mediaPaths.relativePath));
+  });
+
+  addAdministratorGuard(extension, 'mark-all-metadata-requests-done', 'complete', 'all metadata requests');
+  addMediaButtonWithApiRole(extension, {
+    name: 'Mark all metadata requests done (admin only)',
+    svgIcon: approveIcon,
+    apiPath: 'mark-all-metadata-requests-done',
+    minUserRole: UserRoles.Admin,
+    skipVideos: true,
+    reloadContent: true,
+    popup: {
+      header: 'Mark all metadata requests done?',
+      body: 'Use this only after completing every approved metadata correction for this photo.',
+      buttonString: 'Mark all done',
+      customFields: [
+        {id: 'resolutionComment', label: 'Resolution comment (optional)', type: 'string', defaultValue: ''},
+        {id: 'confirm', label: 'Yes, all approved corrections are complete', type: 'boolean', defaultValue: false, required: true}
+      ]
+    }
+  }, UserRoles.Admin, async (
+    _params, body, user, media, mediaRepository
+  ): Promise<void> => {
+    if (!isAdministrator(user)) {
+      extension.Logger.warn(`${user.name}: blocked unauthorized attempt to complete all metadata requests`);
       return;
     }
     requireConfirmation(body);
@@ -482,28 +514,28 @@ export const init = async (extension: IExtensionObject<CurationConfig>): Promise
     await saveCurationProjection(media, mediaRepository, curationRepository!.getProjection(mediaPaths.relativePath));
   });
 
-  addAdministratorGuard(extension, 'dismiss-metadata-requests', 'dismiss', 'metadata requests');
+  addAdministratorGuard(extension, 'decline-all-metadata-requests', 'decline', 'all metadata requests');
   addMediaButtonWithApiRole(extension, {
-    name: 'Dismiss metadata requests (admin only)',
+    name: 'Decline all metadata requests (admin only)',
     svgIcon: declineIcon,
-    apiPath: 'dismiss-metadata-requests',
+    apiPath: 'decline-all-metadata-requests',
     minUserRole: UserRoles.Admin,
     skipVideos: true,
     reloadContent: true,
     popup: {
-      header: 'Dismiss metadata requests?',
-      body: 'Dismisses every open non-deletion request for this photo without changing the photo.',
-      buttonString: 'Dismiss',
+      header: 'Decline all metadata requests?',
+      body: 'Declines every pending or approved metadata request for this photo without changing the photo.',
+      buttonString: 'Decline all',
       customFields: [
-        {id: 'resolutionComment', label: 'Dismissal comment (optional)', type: 'string', defaultValue: ''},
-        {id: 'confirm', label: 'Yes, dismiss these requests', type: 'boolean', defaultValue: false, required: true}
+        {id: 'resolutionComment', label: 'Decline comment (optional)', type: 'string', defaultValue: ''},
+        {id: 'confirm', label: 'Yes, decline all metadata requests', type: 'boolean', defaultValue: false, required: true}
       ]
     }
   }, UserRoles.Admin, async (
     _params, body, user, media, mediaRepository
   ): Promise<void> => {
     if (!isAdministrator(user)) {
-      extension.Logger.warn(`${user.name}: blocked unauthorized attempt to dismiss metadata requests`);
+      extension.Logger.warn(`${user.name}: blocked unauthorized attempt to decline all metadata requests`);
       return;
     }
     requireConfirmation(body);

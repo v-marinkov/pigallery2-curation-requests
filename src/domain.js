@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.applyCurationProjection = exports.applyCurationState = exports.stateTag = exports.METADATA_REQUEST_STATES = exports.METADATA_CATEGORIES = exports.DELETION_STATES = exports.TAG_ITEM_PREFIX = exports.TAG_CATEGORY_PREFIX = exports.TAG_CURATION_OPEN = exports.TAG_DELETE_REQUESTED_BY_PREFIX = exports.TAG_REQUESTED_BY_PREFIX = exports.TAG_DELETE_ERROR = exports.TAG_DELETE_APPROVED = exports.TAG_DELETE_PENDING = exports.CURATION_PREFIX = void 0;
+exports.applyCurationProjection = exports.applyCurationState = exports.stateTag = exports.METADATA_REQUEST_STATES = exports.METADATA_CATEGORIES = exports.DELETION_STATES = exports.TAG_METADATA_APPROVED = exports.TAG_METADATA_PENDING = exports.TAG_ITEM_PREFIX = exports.TAG_CATEGORY_PREFIX = exports.TAG_CURATION_OPEN = exports.TAG_DELETE_REQUESTED_BY_PREFIX = exports.TAG_REQUESTED_BY_PREFIX = exports.TAG_DELETE_ERROR = exports.TAG_DELETE_APPROVED = exports.TAG_DELETE_PENDING = exports.CURATION_PREFIX = void 0;
 exports.CURATION_PREFIX = 'pg-curation:';
 exports.TAG_DELETE_PENDING = `${exports.CURATION_PREFIX}delete-pending`;
 exports.TAG_DELETE_APPROVED = `${exports.CURATION_PREFIX}delete-approved`;
@@ -10,6 +10,8 @@ exports.TAG_DELETE_REQUESTED_BY_PREFIX = `${exports.CURATION_PREFIX}delete-reque
 exports.TAG_CURATION_OPEN = `${exports.CURATION_PREFIX}open`;
 exports.TAG_CATEGORY_PREFIX = `${exports.CURATION_PREFIX}category:`;
 exports.TAG_ITEM_PREFIX = `${exports.CURATION_PREFIX}item:`;
+exports.TAG_METADATA_PENDING = `${exports.CURATION_PREFIX}metadata-pending`;
+exports.TAG_METADATA_APPROVED = `${exports.CURATION_PREFIX}metadata-approved`;
 exports.DELETION_STATES = ['PENDING', 'APPROVED', 'DECLINED', 'EXECUTED', 'ERROR'];
 exports.METADATA_CATEGORIES = [
     'faces',
@@ -45,9 +47,17 @@ const applyCurationProjection = (keywords, projection) => {
         result.push(tag);
     }
     const metadataCategories = [...new Set(projection?.metadataCategories || [])];
+    const metadataPending = projection?.metadataPending ?? metadataCategories.length > 0;
+    const metadataApproved = projection?.metadataApproved ?? false;
     const activeDeletion = Boolean(tag);
     if (projection && (activeDeletion || metadataCategories.length > 0)) {
         result.push(exports.TAG_CURATION_OPEN);
+        if (metadataPending) {
+            result.push(exports.TAG_METADATA_PENDING);
+        }
+        if (metadataApproved) {
+            result.push(exports.TAG_METADATA_APPROVED);
+        }
         for (const category of metadataCategories) {
             result.push(`${exports.TAG_CATEGORY_PREFIX}${category}`);
         }
