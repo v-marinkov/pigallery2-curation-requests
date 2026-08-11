@@ -305,8 +305,6 @@ Review `install_pg2_curation.sh`, then edit `.env.pg2_curation` for the existing
 | `PG2_CURATION_DB` | The same SQLite file as a host path |
 | `PG2_PHOTO_ROOT` | Canonical photo-library host path |
 | `PG2_SIDECAR_STYLE` | `none`, `appended`, or `stem` |
-| `PG2_SOURCE_REPOSITORY` | GitHub `owner/repository` containing the extension source |
-| `PG2_SOURCE_REF` | Branch, tag, or commit downloaded for installation; defaults to `main` |
 | `PG2_OVERWRITE_CLI_ENV` | Overwrite an existing CLI `.env`; default `false` |
 | `PG2_INSTALL_DEPENDENCIES` | Install locked production runtime packages using the existing local PiGallery2 image |
 | `PG2_RECREATE_CONTAINER` | Recreate the service from existing Compose rather than merely starting it |
@@ -325,7 +323,7 @@ The file is parsed as data and is never sourced as shell code. Installation path
 The installer:
 
 1. verifies the existing PiGallery2 config, container, local image, Compose deployment, and photo-library directory before downloading anything;
-2. fetches `PG2_SOURCE_REPOSITORY@PG2_SOURCE_REF` from GitHub and extracts it into a temporary directory;
+2. fetches the extension's current `main` branch from this GitHub repository and extracts it into a temporary directory;
 3. creates extension-owned host directories and stages the browser asset;
 4. when necessary, recreates the existing service to apply the already-edited Compose mounts, without pulling an image;
 5. validates writable curation, read-only images, and the read-only browser asset before editing PiGallery2 configuration;
@@ -367,7 +365,7 @@ cd /path/to/pigallery2/config/extensions
 ./install_pg2_curation.sh
 ```
 
-It downloads the current configured revision again. Pin `PG2_SOURCE_REF` to a release tag or commit for reproducible installations.
+It downloads the current `main` branch again.
 
 ## Installation B: workstation development deployment
 
@@ -600,6 +598,14 @@ Metadata requests are stored in a separate table and cannot be selected by this 
 After execution, run PiGallery2 indexing so removed photos disappear.
 
 ### XMP sidecars
+
+After installation, edit the CLI's own settings file to change this behavior:
+
+```text
+<PG2_CLI_DIR>/.env
+```
+
+For the example layout this is `/opt/pigallery2/curation/cli/.env`; for this project's family-server layout it is `/sharedfolders/AppData/pigallery3/curation/cli/.env`. Change `PG2_SIDECAR_STYLE` there. The installer-level `.env.pg2_curation` only supplies the initial value, and later installations preserve the CLI `.env` unless `PG2_OVERWRITE_CLI_ENV=true`.
 
 | Setting | Behavior |
 | --- | --- |

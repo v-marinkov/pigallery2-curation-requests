@@ -99,8 +99,8 @@ SIDECAR_STYLE="${PG2_SIDECAR_STYLE:-none}"
 INSTALL_DEPENDENCIES="${PG2_INSTALL_DEPENDENCIES:-true}"
 RECREATE_CONTAINER="${PG2_RECREATE_CONTAINER:-true}"
 OVERWRITE_CLI_ENV="${PG2_OVERWRITE_CLI_ENV:-false}"
-SOURCE_REPOSITORY="${PG2_SOURCE_REPOSITORY:-v-marinkov/pigallery2-curation-requests}"
-SOURCE_REF="${PG2_SOURCE_REF:-main}"
+SOURCE_REPOSITORY="v-marinkov/pigallery2-curation-requests"
+SOURCE_REF="main"
 
 [[ -n "${INSTALL_ROOT}" ]] || fail "PG2_INSTALL_ROOT is required in ${INSTALL_ENV_FILE}"
 [[ -n "${CONTAINER}" ]] || fail "PG2_CONTAINER is required in ${INSTALL_ENV_FILE}"
@@ -131,10 +131,6 @@ done
 [[ "${COMPOSE_SERVICE}" =~ ^[A-Za-z0-9_.-]+$ ]] || fail "Unsafe Compose service name: ${COMPOSE_SERVICE}"
 [[ "${EXTENSION_FOLDER}" =~ ^[A-Za-z0-9_.-]+$ ]] || fail "Unsafe extension folder: ${EXTENSION_FOLDER}"
 [[ "${EXTENSION_COMMENT_MAX_LENGTH}" =~ ^[1-9][0-9]*$ ]] || fail "PG2_EXTENSION_COMMENT_MAX_LENGTH must be positive"
-[[ "${SOURCE_REPOSITORY}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || \
-  fail "PG2_SOURCE_REPOSITORY must be a GitHub owner/repository name"
-[[ "${SOURCE_REF}" =~ ^[A-Za-z0-9._/-]+$ ]] && \
-  [[ ! "${SOURCE_REF}" =~ (^|/)\.\.?(/|$) ]] || fail "Unsafe PG2_SOURCE_REF: ${SOURCE_REF}"
 [[ "${SIDECAR_STYLE}" == "none" || "${SIDECAR_STYLE}" == "appended" || "${SIDECAR_STYLE}" == "stem" ]] || \
   fail "PG2_SIDECAR_STYLE must be none, appended, or stem"
 for boolean_value in "${INSTALL_DEPENDENCIES}" "${RECREATE_CONTAINER}" "${OVERWRITE_CLI_ENV}"; do

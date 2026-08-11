@@ -283,8 +283,6 @@ class ServerInstallScriptTests(unittest.TestCase):
                     PG2_CURATION_DB={install_root}/curation/curation.sqlite
                     PG2_PHOTO_ROOT={photo_root}
                     PG2_SIDECAR_STYLE=none
-                    PG2_SOURCE_REPOSITORY=v-marinkov/pigallery2-curation-requests
-                    PG2_SOURCE_REF=main
                     PG2_INSTALL_DEPENDENCIES=false
                     PG2_RECREATE_CONTAINER=true
                     """
