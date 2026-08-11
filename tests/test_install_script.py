@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import tarfile
 import tempfile
 import textwrap
 import unittest
@@ -161,6 +162,184 @@ class ServerInstallScriptTests(unittest.TestCase):
             self.assertEqual(repeated.returncode, 0, repeated.stdout + repeated.stderr)
             self.assertIn("Preserving existing CLI settings", repeated.stdout)
             self.assertEqual(cli_env_path.read_text(encoding="utf-8"), "PRESERVE_ME=true\n")
+
+    def test_standalone_script_downloads_payload_and_bootstraps_missing_config(self) -> None:
+        with tempfile.TemporaryDirectory(prefix="pg2-standalone-install-") as folder:
+            root = Path(folder)
+            install_root = root / "pigallery2"
+            config_path = install_root / "config" / "config.json"
+            photo_root = root / "photos"
+            standalone_dir = root / "standalone"
+            fake_bin = root / "bin"
+            fake_state = root / "docker-state"
+            archive_path = root / "release.tar.gz"
+            install_root.mkdir()
+            photo_root.mkdir()
+            standalone_dir.mkdir()
+            fake_bin.mkdir()
+            (install_root / "docker-compose.yml").write_text("services: {}\n", encoding="utf-8")
+
+            release_files = [
+                "install.sh",
+                "package.json",
+                "package-lock.json",
+                "server.js",
+                "config.js",
+                "src/domain.js",
+                "src/db/database.js",
+                "src/db/repository.js",
+                "src/pigallery/adapter.js",
+                "src/security/fingerprint.js",
+                "src/security/paths.js",
+                "cli/pg2-curation-delete",
+                "cli/pg2-curation-review",
+                "cli/pg2_curation_delete.py",
+                "cli/pg2_curation_review.py",
+                "cli/README.md",
+                "cli/.env.example",
+                "custom_assets/pg2-curation-script.js",
+                "scripts/set_custom_html_head.py",
+            ]
+            with tarfile.open(archive_path, "w:gz") as archive:
+                for relative_path in release_files:
+                    archive.add(
+                        PROJECT_ROOT / relative_path,
+                        arcname=f"pigallery2-curation-requests-main/{relative_path}",
+                    )
+
+            standalone_script = standalone_dir / "install.sh"
+            standalone_script.write_bytes((PROJECT_ROOT / "install.sh").read_bytes())
+            standalone_script.chmod(0o755)
+
+            fake_curl = fake_bin / "curl"
+            fake_curl.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/bin/sh
+                    destination=""
+                    while [ "$#" -gt 0 ]; do
+                      if [ "$1" = "--output" ]; then
+                        shift
+                        destination="$1"
+                      fi
+                      shift
+                    done
+                    [ -n "$destination" ] || exit 2
+                    cp "$FAKE_SOURCE_ARCHIVE" "$destination"
+                    """
+                ),
+                encoding="utf-8",
+            )
+            fake_curl.chmod(0o755)
+
+            fake_docker = fake_bin / "docker"
+            fake_docker.write_text(
+                textwrap.dedent(
+                    """\
+                    #!/bin/sh
+                    case "$1" in
+                      inspect)
+                        if [ "${2:-}" != "-f" ]; then
+                          [ -f "$FAKE_DOCKER_STATE" ]
+                          exit
+                        fi
+                        case "$3" in
+                          *State.Running*) cat "$FAKE_DOCKER_STATE" ;;
+                          *Config.Image*) printf '%s\n' example/pigallery2:test ;;
+                          *'/app/data/curation'*) printf '%s\n' true ;;
+                          *'/app/data/images'*) printf '%s\n' false ;;
+                          *'/app/dist/en/pg2-curation-script.js'*) printf '%s\n' false ;;
+                          *) exit 1 ;;
+                        esac
+                        ;;
+                      compose)
+                        case "$2" in
+                          version) exit 0 ;;
+                          up)
+                            mkdir -p "$(dirname "$FAKE_CONFIG_PATH")"
+                            if [ ! -f "$FAKE_CONFIG_PATH" ]; then
+                              printf '%s\n' '{"Server":{"applicationTitle":"Fresh PiGallery"}}' > "$FAKE_CONFIG_PATH"
+                            fi
+                            printf '%s\n' true > "$FAKE_DOCKER_STATE"
+                            ;;
+                          create) printf '%s\n' false > "$FAKE_DOCKER_STATE" ;;
+                          *) exit 1 ;;
+                        esac
+                        ;;
+                      stop) printf '%s\n' false > "$FAKE_DOCKER_STATE" ;;
+                      start) printf '%s\n' true > "$FAKE_DOCKER_STATE" ;;
+                      exec|run) exit 0 ;;
+                      *) exit 1 ;;
+                    esac
+                    """
+                ),
+                encoding="utf-8",
+            )
+            fake_docker.chmod(0o755)
+
+            env_path = standalone_dir / ".env"
+            env_path.write_text(
+                textwrap.dedent(
+                    f"""\
+                    PG2_INSTALL_ROOT={install_root}
+                    PG2_CONTAINER=pigallery2
+                    PG2_COMPOSE_DIR={install_root}
+                    PG2_COMPOSE_SERVICE=pigallery2
+                    PG2_EXTENSION_DIR={install_root}/config/extensions/curation-requests
+                    PG2_CLI_DIR={install_root}/curation/cli
+                    PG2_CUSTOM_ASSETS_DIR={install_root}/custom_assets
+                    PG2_CONFIG_FILE={config_path}
+                    PG2_CONTAINER_EXTENSION_DIR=/app/data/config/extensions/curation-requests
+                    PG2_CONTAINER_CURATION_DIR=/app/data/curation
+                    PG2_CONTAINER_IMAGE_DIR=/app/data/images
+                    PG2_CONTAINER_ASSET_PATH=/app/dist/en/pg2-curation-script.js
+                    PG2_EXTENSION_FOLDER=curation-requests
+                    PG2_EXTENSION_DATABASE_PATH=/app/data/curation/curation.sqlite
+                    PG2_EXTENSION_REQUESTER_ALLOWLIST=*
+                    PG2_EXTENSION_COMMENT_MAX_LENGTH=4000
+                    PG2_CURATION_DB={install_root}/curation/curation.sqlite
+                    PG2_PHOTO_ROOT={photo_root}
+                    PG2_SIDECAR_STYLE=none
+                    PG2_SOURCE_REPOSITORY=v-marinkov/pigallery2-curation-requests
+                    PG2_SOURCE_REF=main
+                    PG2_CONFIG_WAIT_SECONDS=4
+                    PG2_INSTALL_GIT_PULL=true
+                    PG2_INSTALL_DEPENDENCIES=false
+                    PG2_RECREATE_CONTAINER=true
+                    """
+                ),
+                encoding="utf-8",
+            )
+
+            environment = os.environ.copy()
+            environment["PATH"] = f"{fake_bin}:{environment['PATH']}"
+            environment["FAKE_SOURCE_ARCHIVE"] = str(archive_path)
+            environment["FAKE_DOCKER_STATE"] = str(fake_state)
+            environment["FAKE_CONFIG_PATH"] = str(config_path)
+            completed = subprocess.run(
+                [str(standalone_script)],
+                cwd=standalone_dir,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+            self.assertIn(
+                "Downloading v-marinkov/pigallery2-curation-requests@main from GitHub",
+                completed.stdout,
+            )
+            self.assertIn("PiGallery2 config is absent", completed.stdout)
+            self.assertIn("Installation complete.", completed.stdout)
+            self.assertTrue(config_path.is_file())
+            self.assertTrue(
+                (install_root / "config" / "extensions" / "curation-requests" / "server.js").is_file()
+            )
+            self.assertTrue((install_root / "custom_assets" / "pg2-curation-script.js").is_file())
+            updated = json.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(updated["Server"]["applicationTitle"], "Fresh PiGallery")
+            self.assertIn("pg2-curation-script.js?v=", updated["Server"]["customHTMLHead"])
 
     def test_check_config_rejects_unsafe_paths_without_calling_docker(self) -> None:
         with tempfile.TemporaryDirectory(prefix="pg2-server-install-") as folder:

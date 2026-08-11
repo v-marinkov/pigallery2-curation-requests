@@ -4,6 +4,7 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_ENV_FILE="${PG2_INSTALL_ENV_FILE:-${SCRIPT_DIR}/.env}"
 CONTAINER_START_REQUIRED=0
+BOOTSTRAP_TEMP_DIR="${PG2_BOOTSTRAP_TEMP_DIR:-}"
 
 fail() {
   echo "ERROR: $*" >&2
@@ -15,6 +16,8 @@ usage() {
 Usage: ./install.sh [--check-config]
 
 Install or update directly on the PiGallery2 Docker host using .env.
+When downloaded without the rest of the repository, the script downloads the
+configured GitHub source revision and continues from a temporary workspace.
 --check-config  Validate and print settings without Git, Docker, or file changes.
 EOF
 }
@@ -96,6 +99,9 @@ INSTALL_GIT_PULL="${PG2_INSTALL_GIT_PULL:-true}"
 INSTALL_DEPENDENCIES="${PG2_INSTALL_DEPENDENCIES:-true}"
 RECREATE_CONTAINER="${PG2_RECREATE_CONTAINER:-true}"
 OVERWRITE_CLI_ENV="${PG2_OVERWRITE_CLI_ENV:-false}"
+SOURCE_REPOSITORY="${PG2_SOURCE_REPOSITORY:-v-marinkov/pigallery2-curation-requests}"
+SOURCE_REF="${PG2_SOURCE_REF:-main}"
+CONFIG_WAIT_SECONDS="${PG2_CONFIG_WAIT_SECONDS:-120}"
 
 [[ -n "${INSTALL_ROOT}" ]] || fail "PG2_INSTALL_ROOT is required in ${INSTALL_ENV_FILE}"
 [[ -n "${CONTAINER}" ]] || fail "PG2_CONTAINER is required in ${INSTALL_ENV_FILE}"
@@ -126,6 +132,11 @@ done
 [[ "${COMPOSE_SERVICE}" =~ ^[A-Za-z0-9_.-]+$ ]] || fail "Unsafe Compose service name: ${COMPOSE_SERVICE}"
 [[ "${EXTENSION_FOLDER}" =~ ^[A-Za-z0-9_.-]+$ ]] || fail "Unsafe extension folder: ${EXTENSION_FOLDER}"
 [[ "${EXTENSION_COMMENT_MAX_LENGTH}" =~ ^[1-9][0-9]*$ ]] || fail "PG2_EXTENSION_COMMENT_MAX_LENGTH must be positive"
+[[ "${SOURCE_REPOSITORY}" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || \
+  fail "PG2_SOURCE_REPOSITORY must be a GitHub owner/repository name"
+[[ "${SOURCE_REF}" =~ ^[A-Za-z0-9._/-]+$ ]] && \
+  [[ ! "${SOURCE_REF}" =~ (^|/)\.\.?(/|$) ]] || fail "Unsafe PG2_SOURCE_REF: ${SOURCE_REF}"
+[[ "${CONFIG_WAIT_SECONDS}" =~ ^[1-9][0-9]*$ ]] || fail "PG2_CONFIG_WAIT_SECONDS must be positive"
 [[ "${SIDECAR_STYLE}" == "none" || "${SIDECAR_STYLE}" == "appended" || "${SIDECAR_STYLE}" == "stem" ]] || \
   fail "PG2_SIDECAR_STYLE must be none, appended, or stem"
 for boolean_value in "${INSTALL_GIT_PULL}" "${INSTALL_DEPENDENCIES}" "${RECREATE_CONTAINER}" "${OVERWRITE_CLI_ENV}"; do
@@ -149,6 +160,8 @@ if [[ "${INSTALL_MODE}" == "check" ]]; then
   echo "Photo root (host):     ${PHOTO_ROOT}"
   echo "Extension DB:          ${EXTENSION_DATABASE_PATH}"
   echo "Requester allowlist:   ${EXTENSION_REQUESTER_ALLOWLIST}"
+  echo "Standalone source:     ${SOURCE_REPOSITORY}@${SOURCE_REF}"
+  echo "Config wait seconds:   ${CONFIG_WAIT_SECONDS}"
   echo "Git pull:              ${INSTALL_GIT_PULL}"
   echo "Install dependencies:  ${INSTALL_DEPENDENCIES}"
   echo "Recreate container:    ${RECREATE_CONTAINER}"
@@ -163,24 +176,13 @@ cleanup() {
     echo "Installation did not finish; attempting to start ${CONTAINER}..." >&2
     docker start "${CONTAINER}" >/dev/null 2>&1 || true
   fi
+  if [[ "${BOOTSTRAP_TEMP_DIR}" =~ ^/tmp/pg2-curation-bootstrap\.[A-Za-z0-9]+$ && \
+    -d "${BOOTSTRAP_TEMP_DIR}" ]]; then
+    rm -rf -- "${BOOTSTRAP_TEMP_DIR}"
+  fi
   exit "${exit_code}"
 }
 trap cleanup EXIT
-
-command -v docker >/dev/null || fail "Docker is required"
-command -v python3 >/dev/null || fail "Python 3 is required"
-
-if [[ "${INSTALL_GIT_PULL}" == "true" && "${PG2_INSTALL_REEXECUTED:-false}" != "true" ]]; then
-  command -v git >/dev/null || fail "Git is required when PG2_INSTALL_GIT_PULL=true"
-  git -C "${SCRIPT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1 || \
-    fail "${SCRIPT_DIR} is not a Git checkout; set PG2_INSTALL_GIT_PULL=false or clone the repository"
-  git -C "${SCRIPT_DIR}" diff --quiet && git -C "${SCRIPT_DIR}" diff --cached --quiet || \
-    fail "Tracked source files have local changes; commit or restore them before installing"
-  echo "Updating source checkout with git pull --ff-only..."
-  git -C "${SCRIPT_DIR}" pull --ff-only
-  export PG2_INSTALL_REEXECUTED=true
-  exec "${SCRIPT_DIR}/install.sh"
-fi
 
 REQUIRED_FILES=(
   package.json
@@ -202,10 +204,68 @@ REQUIRED_FILES=(
   custom_assets/pg2-curation-script.js
   scripts/set_custom_html_head.py
 )
+
+release_payload_present() {
+  local required_file
+  for required_file in "${REQUIRED_FILES[@]}"; do
+    [[ -f "${SCRIPT_DIR}/${required_file}" ]] || return 1
+  done
+  return 0
+}
+
+if ! release_payload_present; then
+  [[ "${PG2_INSTALL_BOOTSTRAPPED:-false}" != "true" ]] || \
+    fail "Downloaded release payload is incomplete"
+  command -v curl >/dev/null || fail "curl is required when install.sh is downloaded standalone"
+  command -v tar >/dev/null || fail "tar is required when install.sh is downloaded standalone"
+
+  BOOTSTRAP_TEMP_DIR="$(mktemp -d /tmp/pg2-curation-bootstrap.XXXXXXXX)"
+  bootstrap_archive="${BOOTSTRAP_TEMP_DIR}/source.tar.gz"
+  bootstrap_source="${BOOTSTRAP_TEMP_DIR}/source"
+  mkdir -p "${bootstrap_source}"
+  source_url="https://codeload.github.com/${SOURCE_REPOSITORY}/tar.gz/${SOURCE_REF}"
+
+  echo "Downloading ${SOURCE_REPOSITORY}@${SOURCE_REF} from GitHub..."
+  if ! curl --fail --location --silent --show-error \
+    --retry 3 --output "${bootstrap_archive}" "${source_url}"; then
+    fail "Could not download ${source_url}"
+  fi
+  if ! tar -xzf "${bootstrap_archive}" --strip-components=1 -C "${bootstrap_source}"; then
+    fail "Could not extract the downloaded source archive"
+  fi
+  [[ -x "${bootstrap_source}/install.sh" ]] || chmod 0755 "${bootstrap_source}/install.sh"
+
+  export PG2_INSTALL_ENV_FILE="${INSTALL_ENV_FILE}"
+  export PG2_INSTALL_GIT_PULL=false
+  export PG2_INSTALL_BOOTSTRAPPED=true
+  export PG2_BOOTSTRAP_TEMP_DIR="${BOOTSTRAP_TEMP_DIR}"
+  exec "${bootstrap_source}/install.sh" "$@"
+  fail "Could not continue with the downloaded installer"
+fi
+
+if [[ -n "${BOOTSTRAP_TEMP_DIR}" && \
+  ! "${BOOTSTRAP_TEMP_DIR}" =~ ^/tmp/pg2-curation-bootstrap\.[A-Za-z0-9]+$ ]]; then
+  fail "Unsafe bootstrap temporary directory: ${BOOTSTRAP_TEMP_DIR}"
+fi
+
+command -v docker >/dev/null || fail "Docker is required"
+command -v python3 >/dev/null || fail "Python 3 is required"
+
+if [[ "${INSTALL_GIT_PULL}" == "true" && "${PG2_INSTALL_REEXECUTED:-false}" != "true" ]]; then
+  command -v git >/dev/null || fail "Git is required when PG2_INSTALL_GIT_PULL=true"
+  git -C "${SCRIPT_DIR}" rev-parse --is-inside-work-tree >/dev/null 2>&1 || \
+    fail "${SCRIPT_DIR} is not a Git checkout; download install.sh alone for standalone mode or set PG2_INSTALL_GIT_PULL=false"
+  git -C "${SCRIPT_DIR}" diff --quiet && git -C "${SCRIPT_DIR}" diff --cached --quiet || \
+    fail "Tracked source files have local changes; commit or restore them before installing"
+  echo "Updating source checkout with git pull --ff-only..."
+  git -C "${SCRIPT_DIR}" pull --ff-only
+  export PG2_INSTALL_REEXECUTED=true
+  exec "${SCRIPT_DIR}/install.sh" "$@"
+fi
+
 for required_file in "${REQUIRED_FILES[@]}"; do
   [[ -f "${SCRIPT_DIR}/${required_file}" ]] || fail "Missing release file: ${required_file}"
 done
-[[ -f "${CONFIG_FILE}" ]] || fail "PiGallery2 config does not exist: ${CONFIG_FILE}"
 
 compose_create() {
   (
@@ -233,6 +293,19 @@ compose_recreate() {
   )
 }
 
+compose_start() {
+  (
+    cd "${COMPOSE_DIR}"
+    if docker compose version >/dev/null 2>&1; then
+      docker compose up -d "${COMPOSE_SERVICE}"
+    elif command -v docker-compose >/dev/null 2>&1; then
+      docker-compose up -d "${COMPOSE_SERVICE}"
+    else
+      fail "Docker Compose is not installed"
+    fi
+  )
+}
+
 mount_rw() {
   local destination="$1"
   docker inspect -f "{{range .Mounts}}{{if eq .Destination \"${destination}\"}}{{.RW}}{{end}}{{end}}" "${CONTAINER}"
@@ -247,12 +320,38 @@ validate_configured_mounts() {
     fail "Compose must provide a read-only browser asset mount at ${CONTAINER_ASSET_PATH}; install.sh does not edit Compose files"
 }
 
-mkdir -p "${EXTENSION_DIR}" "${CLI_DIR}" "${CUSTOM_ASSETS_DIR}" "$(dirname -- "${CURATION_DB}")"
+config_is_ready() {
+  [[ -s "${CONFIG_FILE}" ]] && \
+    python3 -c 'import json, sys; json.load(open(sys.argv[1], encoding="utf-8"))' "${CONFIG_FILE}" \
+      >/dev/null 2>&1
+}
+
+[[ -d "${COMPOSE_DIR}" ]] || fail "Compose directory does not exist: ${COMPOSE_DIR}"
+[[ -d "${PHOTO_ROOT}" ]] || fail "Photo-library host directory does not exist: ${PHOTO_ROOT}"
+
+mkdir -p \
+  "${CUSTOM_ASSETS_DIR}" \
+  "$(dirname -- "${CURATION_DB}")" \
+  "$(dirname -- "${CONFIG_FILE}")"
 
 # The source file must exist before Compose creates a file bind mount.
 install -m 0644 \
   "${SCRIPT_DIR}/custom_assets/pg2-curation-script.js" \
   "${CUSTOM_ASSETS_DIR}/${BROWSER_ASSET_NAME}"
+
+if [[ ! -f "${CONFIG_FILE}" ]]; then
+  echo "PiGallery2 config is absent; starting ${COMPOSE_SERVICE} once to generate it..."
+  CONTAINER_START_REQUIRED=1
+  compose_start
+  waited_seconds=0
+  while ! config_is_ready && [[ "${waited_seconds}" -lt "${CONFIG_WAIT_SECONDS}" ]]; do
+    sleep 2
+    waited_seconds=$((waited_seconds + 2))
+  done
+  config_is_ready || \
+    fail "PiGallery2 did not create a valid ${CONFIG_FILE} within ${CONFIG_WAIT_SECONDS} seconds; inspect docker logs ${CONTAINER}"
+  echo "PiGallery2 created ${CONFIG_FILE}."
+fi
 
 if ! docker inspect "${CONTAINER}" >/dev/null 2>&1; then
   echo "Creating ${CONTAINER} with Docker Compose without starting it..."
@@ -270,6 +369,7 @@ echo "Validating required mounts before changing PiGallery2 configuration..."
 validate_configured_mounts
 
 echo "Installing extension production files..."
+mkdir -p "${EXTENSION_DIR}" "${CLI_DIR}"
 mkdir -p "${EXTENSION_DIR}/src/db" "${EXTENSION_DIR}/src/pigallery" "${EXTENSION_DIR}/src/security"
 install -m 0644 \
   "${SCRIPT_DIR}/package.json" \
