@@ -351,8 +351,25 @@ if [[ ! -f "${CLI_DIR}/.env" || "${OVERWRITE_CLI_ENV}" == "true" ]]; then
   cli_env_temp="$(mktemp "${CLI_DIR}/.env.XXXXXXXX")"
   chmod 0600 "${cli_env_temp}"
   printf '%s\n' \
+    "# Host-side settings for pg2-curation-review and pg2-curation-delete." \
+    "# This file is parsed as data; it is not executed as shell code." \
+    "# Command-line options and exported environment variables override these values." \
+    "" \
+    "# Curation SQLite database on the Docker host. This must be the same file" \
+    "# that the extension sees through its /app/data/curation bind mount." \
     "PG2_CURATION_DB=${CURATION_DB}" \
+    "" \
+    "# Canonical, writable photo-library directory on the Docker host. This must" \
+    "# correspond to PiGallery2's read-only /app/data/images mount. It is used only" \
+    "# by pg2-curation-delete; changing it does not change the Docker mount." \
     "PG2_PHOTO_ROOT=${PHOTO_ROOT}" \
+    "" \
+    "# XMP behavior for pg2-curation-delete:" \
+    "#   none     = delete only the approved media file" \
+    "#   appended = also delete IMG_1234.jpg.xmp" \
+    "#   stem     = also delete IMG_1234.xmp" \
+    "# Keep none unless the library's sidecar naming convention has been verified." \
+    "# Be especially careful with stem when RAW and JPEG files share a sidecar." \
     "PG2_SIDECAR_STYLE=${SIDECAR_STYLE}" \
     > "${cli_env_temp}"
   mv -f "${cli_env_temp}" "${CLI_DIR}/.env"

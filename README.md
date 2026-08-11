@@ -358,14 +358,23 @@ Review this list before running it on an established server:
 
 Atomic JSON replacement can reformat `config.json` using two-space indentation. The one-time backup is therefore important even though unrelated JSON values and custom head code are preserved.
 
-Later upgrades use the same downloaded script and edited `.env.pg2_curation`:
+### Upgrading an existing installation
+
+Keep the edited `.env.pg2_curation`; it describes the local deployment and should not be replaced by the repository template. Download a fresh copy of the installer so bootstrap and validation improvements are included, review it, and run it again:
 
 ```bash
 cd /path/to/pigallery2/config/extensions
+curl --fail --location --output install_pg2_curation.sh.new \
+  https://raw.githubusercontent.com/v-marinkov/pigallery2-curation-requests/main/install_pg2_curation.sh
+chmod 700 install_pg2_curation.sh.new
+mv install_pg2_curation.sh.new install_pg2_curation.sh
+./install_pg2_curation.sh --check-config
 ./install_pg2_curation.sh
 ```
 
-It downloads the current `main` branch again.
+The installer downloads the current `main` branch, replaces the extension-owned production files and browser asset, refreshes runtime dependencies, merges the current loader/configuration, and recreates the existing PiGallery2 service. It preserves the curation database and, by default, the active CLI `.env`. It never rewrites Compose or the photo library. Carefully inspect the `--check-config` output, particularly if any deployment paths, container names, or mounts have changed.
+
+Before an upgrade, back up the curation SQLite database and PiGallery2 configuration. If copying SQLite files directly, stop PiGallery2 first and copy `curation.sqlite` together with any `curation.sqlite-wal` and `curation.sqlite-shm` files; alternatively, use SQLite's online backup mechanism. The installer stops the container during file replacement, but that is not a substitute for a backup.
 
 ## Installation B: workstation development deployment
 
@@ -547,6 +556,26 @@ Use the allowlist syntax described under [Permission rules](#permission-rules). 
 
 The installer places both commands in the configured CLI directory. See [cli/README.md](cli/README.md) for the short reference.
 
+### What the CLI `.env` controls
+
+The active host-side settings file is:
+
+```text
+<PG2_CLI_DIR>/.env
+```
+
+For example, it may be `/opt/pigallery2/curation/cli/.env` or `/sharedfolders/AppData/pigallery3/curation/cli/.env`. It is read each time a Python command starts and controls only those host commands:
+
+| Setting | Used by | Meaning |
+| --- | --- | --- |
+| `PG2_CURATION_DB` | review and delete | Host path to the curation SQLite file; it must resolve to the same file the extension sees through `/app/data/curation` |
+| `PG2_PHOTO_ROOT` | delete only | Canonical writable host photo-library root corresponding to PiGallery2's read-only `/app/data/images` mount |
+| `PG2_SIDECAR_STYLE` | delete only | Whether an approved deletion also removes no XMP sidecar, an appended sidecar, or a stem sidecar |
+
+This file does **not** change extension permissions, frontend behavior, Docker mounts, the container-side database path, or PiGallery2 configuration. CLI flags such as `--database`, `--photo-root`, and `--sidecar-style` override it for one run; exported environment variables also take precedence.
+
+The installer creates this file with explanatory comments and mode `0600` on the first installation. Upgrades preserve it unless `PG2_OVERWRITE_CLI_ENV=true` is deliberately set in `.env.pg2_curation`. Therefore, edit the active CLI `.env`—not the installer template—when changing host review/deletion behavior after installation. An `.env` created by an older release remains valid and is intentionally left untouched; the newly installed `.env.example` in the same directory contains the current explanatory comments.
+
 ### Review active work
 
 ```bash
@@ -599,13 +628,13 @@ After execution, run PiGallery2 indexing so removed photos disappear.
 
 ### XMP sidecars
 
-After installation, edit the CLI's own settings file to change this behavior:
+After installation, edit the CLI's own settings file described above to change this behavior:
 
 ```text
 <PG2_CLI_DIR>/.env
 ```
 
-For the example layout this is `/opt/pigallery2/curation/cli/.env`; for this project's family-server layout it is `/sharedfolders/AppData/pigallery3/curation/cli/.env`. Change `PG2_SIDECAR_STYLE` there. The installer-level `.env.pg2_curation` only supplies the initial value, and later installations preserve the CLI `.env` unless `PG2_OVERWRITE_CLI_ENV=true`.
+Change `PG2_SIDECAR_STYLE` there. The installer-level `.env.pg2_curation` only supplies the initial value, and later installations preserve the CLI `.env` unless `PG2_OVERWRITE_CLI_ENV=true`.
 
 | Setting | Behavior |
 | --- | --- |

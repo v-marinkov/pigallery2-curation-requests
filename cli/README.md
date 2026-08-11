@@ -24,6 +24,8 @@ The scripts look for `.env` in the current directory and then beside the script.
 
 `PG2_CURATION_DB` and `PG2_PHOTO_ROOT` are paths on the Docker host. The database path should identify the same file that the PiGallery2 container sees through its curation bind mount. The photo root must be the canonical host directory corresponding to PiGallery2's read-only `/app/data/images` mount.
 
+This `.env` controls only the host-side Python commands. `pg2-curation-review` uses `PG2_CURATION_DB`; `pg2-curation-delete` uses all three settings. It does not configure the PiGallery2 extension, requester permissions, frontend, Docker mounts, or the database location inside the container.
+
 ## Review requests
 
 Show the active queues—pending and approved metadata work plus pending and approved deletions:

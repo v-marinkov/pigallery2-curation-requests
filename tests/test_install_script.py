@@ -119,17 +119,16 @@ class ServerInstallScriptTests(unittest.TestCase):
             self.assertTrue((install_root / "custom_assets" / "pg2-curation-script.js").is_file())
 
             cli_env = (install_root / "curation" / "cli" / ".env").read_text(encoding="utf-8")
-            self.assertEqual(
+            self.assertIn("# Host-side settings for pg2-curation-review", cli_env)
+            self.assertIn(
+                f"PG2_CURATION_DB={install_root}/curation/curation.sqlite",
                 cli_env,
-                "\n".join(
-                    [
-                        f"PG2_CURATION_DB={install_root}/curation/curation.sqlite",
-                        f"PG2_PHOTO_ROOT={photo_root}",
-                        "PG2_SIDECAR_STYLE=appended",
-                        "",
-                    ]
-                ),
             )
+            self.assertIn(f"PG2_PHOTO_ROOT={photo_root}", cli_env)
+            self.assertIn("#   none     = delete only the approved media file", cli_env)
+            self.assertIn("#   appended = also delete IMG_1234.jpg.xmp", cli_env)
+            self.assertIn("#   stem     = also delete IMG_1234.xmp", cli_env)
+            self.assertIn("PG2_SIDECAR_STYLE=appended", cli_env)
 
             updated = json.loads(config_path.read_text(encoding="utf-8"))
             self.assertEqual(updated["Server"]["applicationTitle"], "Family Photos")
