@@ -3,7 +3,7 @@
 > [!IMPORTANT]
 > **Development disclosure:** This extension was vibe-coded using **ChatGPT 5.6 Sol High**. I developed it for—and actively use it with—my personal family photo library. Its design and implementation followed strict data-preservation guidelines: PiGallery2 retains read-only access to the photo library, curation state is stored separately, and deletion is dry-run by default and requires explicit execution with path and fingerprint checks. Tested backups remain essential.
 
-A community extension and host-side toolset for moderated photo curation in PiGallery2. Family members can report deletion and metadata problems, administrators can review them, and a separate defensive host command performs only approved deletions.
+A community extension and host-side toolset for moderated photo curation in PiGallery2. Users can request deletion and metadata changes, administrators can review them, and a separate defensive host command external to PiGallery2 performs only approved deletions.
 
 PiGallery2 keeps read-only access to the canonical photo library.
 
@@ -14,8 +14,9 @@ License: **MIT**
 > `pg2-curation-delete --execute` can permanently delete photographs. Maintain tested backups, inspect its dry-run output, and keep PiGallery2's image mount read-only.
 
 ## What it provides
+A toggle to enable **Curation mode** (for authorized users) under Tools. Still under TOols, a link to a custom search showing only the current user's curation requests.
 
-One **Request curation** pencil action lets an authorized user select one or more categories. Metadata corrections are grouped first, followed by the separate destructive deletion choice:
+When **Curation mode** is enables, a **Request curation** pencil action appears on the top left of photo thumbnails. It lets an authorized user select one or more categories for redaction requests. Metadata corrections are grouped first, followed by the separate destructive deletion choice:
 
 1. Wrong or missing faces
 2. Wrong or missing tags
@@ -44,6 +45,8 @@ Other functionality includes:
 - a read-only host report covering metadata and deletion work;
 - a dry-run-by-default, fingerprint-verifying deletion executor;
 - automatic migration of existing deletion-only and earlier curation databases.
+
+Any photo with an open request has an info button on the top right of its thumbnail. For normal users, clicking it shows the user's own requests and options to retract them. Admins can view the requests from all users for the given photo, approve/mark down/decline them individually or in batch.
 
 ## Architecture
 
