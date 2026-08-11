@@ -112,7 +112,6 @@
     .pg-curation-dialog-close { border: 0; background: transparent; font-size: 1.5rem; }
     .pg-curation-request-detail { margin-top: 1rem; padding-top: 1rem; border-top: 1px solid rgba(128,128,128,.35); }
     .pg-curation-request-detail p { margin: .35rem 0 0; white-space: pre-wrap; }
-    .pg-curation-mode-indicator { display: inline-block; width: 1.25rem; }
   `;
 
   document.getElementById('pg2-curation-button-permissions')?.remove();
@@ -287,44 +286,74 @@
   };
 
   const updateModeToggle = () => {
-    const toggle = document.getElementById('pg-curation-mode-toggle');
-    if (!toggle) {
+    const modeSwitch = document.getElementById('pg-curation-mode-switch');
+    if (!modeSwitch) {
       return;
     }
     const enabled = root.dataset.pgCurationMode === 'enabled';
-    toggle.setAttribute('aria-checked', String(enabled));
-    const indicator = toggle.querySelector('.pg-curation-mode-indicator');
-    if (indicator) {
-      indicator.textContent = enabled ? '☑' : '☐';
-    }
+    modeSwitch.checked = enabled;
+    modeSwitch.setAttribute('aria-checked', String(enabled));
   };
 
   const ensureModeToggle = () => {
     if (Number(globalThis.ServerInject?.user?.role ?? 0) < 3) {
       return;
     }
-    const frameButton = document.getElementById('button-frame-menu');
-    const menu = frameButton?.closest('.dropdown')?.querySelector('.dropdown-menu') ||
-      frameButton?.parentElement?.querySelector('.dropdown-menu');
-    if (!menu || document.getElementById('pg-curation-mode-toggle')) {
+    if (document.getElementById('pg-curation-mode-toggle')) {
+      updateModeToggle();
       return;
     }
-    const toggle = document.createElement('button');
-    toggle.id = 'pg-curation-mode-toggle';
-    toggle.type = 'button';
-    toggle.className = 'dropdown-item';
-    toggle.setAttribute('role', 'menuitemcheckbox');
-    const indicator = document.createElement('span');
-    indicator.className = 'pg-curation-mode-indicator';
+
+    // PiGallery2 renders the Tools submenu lazily. Anchor to controls inside that
+    // submenu instead of the outer hamburger menu, which can have several open
+    // dropdowns in the DOM at the same time.
+    const anchorControl = document.getElementById('fix-switch') ||
+      document.getElementById('autopoll-interval-select');
+    const anchorItem = anchorControl?.closest('li[role="menuitem"]') ||
+      anchorControl?.closest('li');
+    const menu = anchorItem?.closest('ul.dropdown-menu');
+    if (!anchorItem || !menu) {
+      return;
+    }
+
+    const item = document.createElement('li');
+    item.id = 'pg-curation-mode-toggle';
+    item.setAttribute('role', 'menuitem');
+
+    const row = document.createElement('div');
+    row.className = 'dropdown-item d-flex justify-content-between';
+
     const label = document.createElement('span');
     label.textContent = 'Curation mode';
-    toggle.append(indicator, label);
-    toggle.addEventListener('click', event => {
+    label.title = 'Show or hide photo curation controls';
+
+    const switchContainer = document.createElement('div');
+    switchContainer.className = 'form-check form-switch';
+
+    const modeSwitch = document.createElement('input');
+    modeSwitch.id = 'pg-curation-mode-switch';
+    modeSwitch.name = 'curation-mode';
+    modeSwitch.type = 'checkbox';
+    modeSwitch.className = 'form-check-input';
+    modeSwitch.setAttribute('role', 'switch');
+    modeSwitch.addEventListener('click', event => {
+      event.stopPropagation();
+    });
+    modeSwitch.addEventListener('change', event => {
+      event.stopPropagation();
+      setCurationMode(modeSwitch.checked);
+    });
+
+    row.addEventListener('click', event => {
       event.preventDefault();
       event.stopPropagation();
       setCurationMode(root.dataset.pgCurationMode !== 'enabled');
     });
-    menu.appendChild(toggle);
+
+    switchContainer.appendChild(modeSwitch);
+    row.append(label, switchContainer);
+    item.appendChild(row);
+    menu.insertBefore(item, anchorItem);
     updateModeToggle();
   };
 

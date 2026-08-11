@@ -104,7 +104,7 @@ Resolving or dismissing metadata currently closes every open non-deletion reques
 
 ## Curation mode
 
-The frontend script inserts a **Curation mode** checkbox into the dropdown associated with `button-frame-menu`.
+The frontend script inserts a **Curation mode** switch inside PiGallery2's lazily rendered **Tools** submenu, immediately before **Fix navbar**. If that control is unavailable, **Auto update gallery** is used as the fallback position.
 
 - It defaults to disabled for a user who has not selected a preference.
 - Its value is stored in browser `localStorage`, keyed by PiGallery2 user ID.
@@ -503,7 +503,7 @@ Add the same source file as a read-only bind mount under that locale's `/app/dis
 
 - Saved searches cannot be nested.
 - PiGallery2 3.5.x does not consistently honor `minUserRole` when rendering extension buttons; the frontend script corrects presentation and the backend remains authoritative.
-- Inserting Curation mode depends on the current `button-frame-menu` dropdown DOM.
+- Inserting Curation mode depends on the current Tools submenu controls (`fix-switch`, with `autopoll-interval-select` as a fallback).
 - Metadata Resolve/Dismiss currently acts on all open non-deletion requests for one photo.
 - Extension actions appear on gallery thumbnails rather than inside the native lightbox in the tested PiGallery2 version.
 

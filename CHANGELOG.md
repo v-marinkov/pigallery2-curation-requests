@@ -7,7 +7,7 @@
 - Added a migration-safe metadata request queue with open, resolved, dismissed, and withdrawn states.
 - Added authenticated in-gallery request details and comments without projecting comment text into keywords.
 - Added flat category saved searches alongside the existing deletion queues.
-- Added a per-user, browser-local Curation mode toggle in the PiGallery2 frame menu.
+- Added a per-user, browser-local Curation mode toggle inside PiGallery2's Tools submenu.
 - Extended the host review report to include metadata correction requests while keeping the deletion executor deletion-only.
 - Preserved the existing deletion schema, approval fingerprints, queue locking, and defensive executor.
 
