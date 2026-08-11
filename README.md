@@ -238,15 +238,27 @@ services:
 
 Add another asset mount for each additional locale, changing only `/app/dist/<locale>/pg2-curation-script.js`.
 
-These mounts must already be declared in the deployment's Compose file before running `install.sh`. Their extension-owned host directories and the browser asset itself do not need to exist yet: the installer creates and stages them before Compose starts. The configured host photo library must already exist so Docker cannot silently create an empty directory after a path typo.
+These mounts must already be declared in the deployment's Compose file before running `install_pg2_curation.sh`. Their extension-owned host directories and the browser asset itself do not need to exist yet: the installer creates and stages them before recreating the existing container. The configured host photo library must already exist so Docker cannot silently create an empty directory after a path typo.
 
 The installer deliberately does **not** edit `compose.yml`, `compose.yaml`, `docker-compose.yml`, or `docker-compose.yaml`; Compose layouts, service names, YAML anchors, reverse proxies, and locale sets vary too much to rewrite safely. It validates the resulting container mounts before changing PiGallery2 configuration.
 
 ## Installation A: directly on the server
 
-This is the recommended public installation and upgrade method. Only `install.sh` and an edited `.env` are kept on the Docker host; the installer downloads the selected GitHub source revision into a temporary directory for each run. It requires no Git checkout, SSH, or SCP deployment stage and does not use `curl | sh`.
+This is the recommended public installation and upgrade method. Only `install_pg2_curation.sh` and an edited `.env.pg2_curation` are kept beside each other in PiGallery2's host `config/extensions` directory. The installer downloads the selected extension source revision into a temporary directory for each run. It requires no Git checkout, SSH, SCP, or local TypeScript compilation and does not use `curl | sh`.
 
-### 1. Prepare the existing Compose deployment
+### 1. Install PiGallery2 first
+
+Install, start, and configure PiGallery2 using its own Docker instructions. Before this extension installer can run, all of the following must already exist:
+
+- a valid PiGallery2 `config.json`;
+- the configured PiGallery2 container;
+- that container's image in the local Docker image store;
+- the Compose file and service;
+- the real host photo-library directory.
+
+The extension installer will not create or download PiGallery2. It fails before downloading extension files if these prerequisites are absent.
+
+### 2. Add the extension mounts to Compose
 
 Add the three mounts shown under [Docker prerequisites](#docker-prerequisites) to the actual PiGallery2 service, including one browser-asset mount per enabled locale. Do not start with paths copied blindly from the example: use the host paths, service name, container name, image path, and locales from the actual installation.
 
@@ -256,22 +268,21 @@ The PiGallery2 container must see:
 - the photo library read-only at `PG2_CONTAINER_IMAGE_DIR`;
 - the browser file read-only at `PG2_CONTAINER_ASSET_PATH`.
 
-For a fresh PiGallery2 deployment, create the Compose file but do not manually start the service just to generate `config.json`. The installer stages the file-mounted browser asset first, starts the configured service, waits for PiGallery2 to create `config.json`, and then continues. For an existing deployment it uses the current configuration.
+If the existing container was created before these mounts were added, leave it in place. The installer stages the browser file, recreates the existing service with the current Compose definition, and validates the mounts before editing `config.json`.
 
-### 2. Download and configure
+### 3. Download into `config/extensions` and configure
 
 ```bash
-mkdir -p /opt/pigallery2-curation-installer
-cd /opt/pigallery2-curation-installer
-curl --fail --location --output install.sh \
-  https://raw.githubusercontent.com/v-marinkov/pigallery2-curation-requests/main/install.sh
-curl --fail --location --output .env \
-  https://raw.githubusercontent.com/v-marinkov/pigallery2-curation-requests/main/.env.example
-chmod 700 install.sh
-chmod 600 .env
+cd /path/to/pigallery2/config/extensions
+curl --fail --location --output install_pg2_curation.sh \
+  https://raw.githubusercontent.com/v-marinkov/pigallery2-curation-requests/main/install_pg2_curation.sh
+curl --fail --location --output .env.pg2_curation \
+  https://raw.githubusercontent.com/v-marinkov/pigallery2-curation-requests/main/.env.pg2_curation
+chmod 700 install_pg2_curation.sh
+chmod 600 .env.pg2_curation
 ```
 
-Review `install.sh`, then edit `.env` for the Docker deployment. The example contains generic `/opt/pigallery2` and `/srv/photos/family` paths that must be replaced.
+Review `install_pg2_curation.sh`, then edit `.env.pg2_curation` for the existing Docker deployment. The downloaded template contains generic `/opt/pigallery2` and `/srv/photos/family` paths that must be replaced.
 
 | Variable | Purpose |
 | --- | --- |
@@ -282,7 +293,7 @@ Review `install.sh`, then edit `.env` for the Docker deployment. The example con
 | `PG2_EXTENSION_DIR` | Host extension destination |
 | `PG2_CLI_DIR` | Host review/deletion command destination |
 | `PG2_CUSTOM_ASSETS_DIR` | Source directory for locale asset mounts |
-| `PG2_CONFIG_FILE` | PiGallery2 `config.json`; generated on first start when absent |
+| `PG2_CONFIG_FILE` | Existing PiGallery2 `config.json`; installation fails when absent or invalid |
 | `PG2_CONTAINER_EXTENSION_DIR` | Extension directory as seen inside the container |
 | `PG2_CONTAINER_CURATION_DIR` | Writable curation mount destination inside the container |
 | `PG2_CONTAINER_IMAGE_DIR` | Read-only image mount destination inside the container |
@@ -294,46 +305,47 @@ Review `install.sh`, then edit `.env` for the Docker deployment. The example con
 | `PG2_CURATION_DB` | The same SQLite file as a host path |
 | `PG2_PHOTO_ROOT` | Canonical photo-library host path |
 | `PG2_SIDECAR_STYLE` | `none`, `appended`, or `stem` |
-| `PG2_SOURCE_REPOSITORY` | GitHub `owner/repository` downloaded in standalone mode |
-| `PG2_SOURCE_REF` | Branch, tag, or commit downloaded in standalone mode; defaults to `main` |
-| `PG2_CONFIG_WAIT_SECONDS` | Maximum first-start wait for a missing PiGallery2 `config.json` |
+| `PG2_SOURCE_REPOSITORY` | GitHub `owner/repository` containing the extension source |
+| `PG2_SOURCE_REF` | Branch, tag, or commit downloaded for installation; defaults to `main` |
 | `PG2_OVERWRITE_CLI_ENV` | Overwrite an existing CLI `.env`; default `false` |
-| `PG2_INSTALL_GIT_PULL` | Fast-forward a full Git checkout; ignored by standalone archive installation |
-| `PG2_INSTALL_DEPENDENCIES` | Rebuild extension production dependencies from the lockfile |
+| `PG2_INSTALL_DEPENDENCIES` | Install locked production runtime packages using the existing local PiGallery2 image |
 | `PG2_RECREATE_CONTAINER` | Recreate the service from existing Compose rather than merely starting it |
 
 The file is parsed as data and is never sourced as shell code. Installation paths reject shell characters, traversal components, doubled separators, and filesystem-root targets.
 
-### 3. Validate and install
+### 4. Validate and install
 
 ```bash
-./install.sh --check-config
-./install.sh
+./install_pg2_curation.sh --check-config
+./install_pg2_curation.sh
 ```
+
+`--check-config` validates and prints the settings file without contacting Docker or changing files. The full command then verifies the existing PiGallery2/container/image and mount prerequisites before it downloads the extension.
 
 The installer:
 
-1. when downloaded alone, fetches `PG2_SOURCE_REPOSITORY@PG2_SOURCE_REF` from GitHub and extracts it into a temporary directory;
-2. creates extension-owned host directories and stages the browser asset before Compose can interpret its file bind mount;
-3. if `config.json` is absent, starts the existing Compose service and waits for PiGallery2 to generate it;
-4. validates writable curation, read-only images, and the read-only browser asset before changing PiGallery2 configuration;
-5. copies only production extension, CLI, and browser files;
-6. creates the host CLI `.env` with mode `0600`, but preserves an existing one unless `PG2_OVERWRITE_CLI_ENV=true`;
-7. atomically configures extension settings and merges a marked loader block into `Server.customHTMLHead`;
-8. installs locked production dependencies using the PiGallery2 image;
-9. recreates the Compose service and revalidates its mounts;
-10. removes the temporary downloaded source.
+1. verifies the existing PiGallery2 config, container, local image, Compose deployment, and photo-library directory before downloading anything;
+2. fetches `PG2_SOURCE_REPOSITORY@PG2_SOURCE_REF` from GitHub and extracts it into a temporary directory;
+3. creates extension-owned host directories and stages the browser asset;
+4. when necessary, recreates the existing service to apply the already-edited Compose mounts, without pulling an image;
+5. validates writable curation, read-only images, and the read-only browser asset before editing PiGallery2 configuration;
+6. stops the existing container and copies only committed production JavaScript, CLI, and browser files;
+7. creates the host CLI `.env` with mode `0600`, but preserves an existing one unless `PG2_OVERWRITE_CLI_ENV=true`;
+8. atomically configures extension settings and merges a marked loader block into `Server.customHTMLHead`;
+9. installs locked production runtime dependencies using the existing local PiGallery2 image and `npm ci --omit=dev`;
+10. recreates the service, revalidates its mounts, and removes the temporary source.
 
-It never replaces the curation database or photo library and never edits a Compose file. If installation fails after stopping a container, its cleanup handler attempts to start it again.
+It never downloads or installs PiGallery2, replaces the curation database or photo library, or edits a Compose file. If installation fails after stopping a container, its cleanup handler attempts to start it again.
 
-### Exactly what `install.sh` changes
+The repository already contains JavaScript compiled from TypeScript, so the server does not build the extension. Runtime packages are separate: `server.js` imports modules including `better-sqlite3`, whose native binary must match the PiGallery2 container's CPU architecture and Node ABI. Installing only production dependencies is therefore required on a first installation. Shipping a prebuilt `node_modules` would be larger, architecture-specific, and less robust.
+
+### Exactly what `install_pg2_curation.sh` changes
 
 Review this list before running it on an established server:
 
 | Target | Installer behavior |
 | --- | --- |
 | Downloaded source | Standalone mode downloads the configured public GitHub revision over HTTPS into `/tmp` and removes it after the run |
-| Git checkout | When the complete repository is present and `PG2_INSTALL_GIT_PULL=true`, requires a clean tracked tree and runs `git pull --ff-only` |
 | Extension directory | Overwrites the named production files from this release; does not copy TypeScript or tests |
 | Extension `node_modules` | With dependency installation enabled, `npm ci --omit=dev` makes it match `package-lock.json` |
 | CLI directory | Overwrites the two launchers, two Python programs, README, and `.env.example` |
@@ -342,20 +354,20 @@ Review this list before running it on an established server:
 | PiGallery2 `config.json` | Creates `config.json.pg2-curation.bak` once, then atomically updates this extension's `enabled`, `path`, and `configs` keys and replaces/appends only the marked curation loader inside `Server.customHTMLHead` |
 | Existing `customHTMLHead` code | Preserved. A loader generated by an older release is migrated instead of duplicated |
 | Compose YAML | Never read-modified-written; the existing service may be stopped and recreated with the existing Compose definition |
-| Missing PiGallery2 `config.json` | Starts the configured Compose service once and waits up to `PG2_CONFIG_WAIT_SECONDS` for PiGallery2 to create it |
+| Missing PiGallery2 installation | Refuses to proceed before downloading or changing extension files |
 | Curation SQLite | Never copied or cleared; schema migrations run when the extension starts |
 | Photo library | Never touched by installation; only an explicit later `pg2-curation-delete --execute` can remove approved files |
 
 Atomic JSON replacement can reformat `config.json` using two-space indentation. The one-time backup is therefore important even though unrelated JSON values and custom head code are preserved.
 
-Later standalone upgrades use the same downloaded script and edited `.env`:
+Later upgrades use the same downloaded script and edited `.env.pg2_curation`:
 
 ```bash
-cd /opt/pigallery2-curation-installer
-./install.sh
+cd /path/to/pigallery2/config/extensions
+./install_pg2_curation.sh
 ```
 
-It downloads the current configured revision again. Pin `PG2_SOURCE_REF` to a release tag or commit for reproducible installations. A full Git clone remains supported: in that mode the installer refuses tracked local source changes so a published release cannot be silently mixed with hand-edited runtime files, and `PG2_INSTALL_GIT_PULL=true` performs a fast-forward update.
+It downloads the current configured revision again. Pin `PG2_SOURCE_REF` to a release tag or commit for reproducible installations.
 
 ## Installation B: workstation development deployment
 
@@ -376,7 +388,7 @@ Configure `.env.deploy` with the SSH destination and remote host/container paths
 ./deploy-to-server.sh
 ```
 
-The script builds and tests locally, opens one multiplexed SSH connection, stops or creates the container, copies only production files, installs dependencies through the target image, merges the marked `customHTMLHead` loader, recreates the service, and validates its mounts. Like `install.sh`, it does not edit remote Compose YAML; required mounts must already exist there.
+The script builds and tests locally, opens one multiplexed SSH connection, stops or creates the container, copies only production files, installs dependencies through the target image, merges the marked `customHTMLHead` loader, recreates the service, and validates its mounts. Like `install_pg2_curation.sh`, it does not edit remote Compose YAML; required mounts must already exist there.
 
 An existing remote CLI `.env`, curation database, unrelated custom assets, and unrelated `customHTMLHead` code are preserved. Named extension production files and the configured curation browser asset are updated.
 
@@ -687,9 +699,9 @@ tests/                         Workflow, migration, installer, and executor test
 examples/                      Parameterized Docker Compose example
 patches/                       Optional upstream role-filtering patch
 docs/                          Historical deletion-workflow specification
-install.sh                     Recommended server-local installer/updater
+install_pg2_curation.sh        Recommended server-local installer/updater
 deploy-to-server.sh            SSH/SCP development deployment tool
-.env.example                   Server installer template
+.env.pg2_curation              Server installer settings template
 .env.deploy.example            Development deployment template
 ```
 
