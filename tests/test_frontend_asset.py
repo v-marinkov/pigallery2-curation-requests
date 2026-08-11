@@ -42,7 +42,7 @@ class FrontendAssetTests(unittest.TestCase):
         self.assertIn("input.disabled = deletionSelected", source)
         self.assertIn("if (deletionSelected && input.checked)", source)
         self.assertIn("input.click()", source)
-        self.assertIn(".photo-container.pg-curation-has-deletion", source)
+        self.assertIn("'pg-curation-has-deletion'", source)
         self.assertIn('button[title="Approve deletion (admin only)"]', source)
 
     def test_request_ownership_and_details_button_are_presented_per_user(self):
@@ -53,6 +53,8 @@ class FrontendAssetTests(unittest.TestCase):
         self.assertIn(".photo-container.pg-curation-delete-requested-by-me", source)
         self.assertIn("button.textContent = 'ⓘ'", source)
         self.assertIn("top: .35rem", source)
+        self.assertIn("border-radius: 50%", source)
+        self.assertIn("transform: scale(1.14)", source)
 
     def test_metadata_options_are_grouped_above_deletion(self):
         source = FRONTEND_ASSET.read_text(encoding="utf-8")
@@ -61,6 +63,16 @@ class FrontendAssetTests(unittest.TestCase):
         self.assertIn("'pg-curation-metadata-first'", source)
         self.assertIn("'pg-curation-metadata-last'", source)
         self.assertIn("metadata corrections above", source)
+
+    def test_admin_metadata_and_deletion_controls_can_coexist(self):
+        source = FRONTEND_ASSET.read_text(encoding="utf-8")
+
+        self.assertNotIn(
+            '.photo-container.pg-curation-has-deletion button[title="Resolve metadata requests',
+            source,
+        )
+        self.assertIn("outline: 2px solid rgba(13, 110, 253, .9)", source)
+        self.assertIn("outline: 2px solid rgba(220, 53, 69, .95)", source)
 
 
 if __name__ == "__main__":

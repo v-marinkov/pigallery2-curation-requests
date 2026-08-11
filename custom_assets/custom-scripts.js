@@ -128,13 +128,6 @@
       display: none !important;
     }
 
-    /* A deletion decision takes precedence. Existing metadata requests remain
-       in SQLite and become actionable again if deletion is declined/cancelled. */
-    .photo-container.pg-curation-has-deletion button[title="Resolve metadata requests (admin only)"],
-    .photo-container.pg-curation-has-deletion button[title="Dismiss metadata requests (admin only)"] {
-      display: none !important;
-    }
-
     /* Ownership is category-specific: another user's deletion request must not
        hide the current user's pencil. */
     .photo-container.pg-curation-delete-requested-by-me button[title="Request curation"] {
@@ -152,6 +145,20 @@
       background: #bb2d3b !important;
     }
 
+    /* When both workflows coexist, colored outlines distinguish the two
+       moderation pairs without changing their independent behavior. */
+    .photo-container button[title="Resolve metadata requests (admin only)"],
+    .photo-container button[title="Dismiss metadata requests (admin only)"] {
+      outline: 2px solid rgba(13, 110, 253, .9);
+      outline-offset: 1px;
+    }
+
+    .photo-container button[title="Approve deletion (admin only)"],
+    .photo-container button[title="Decline deletion (admin only)"] {
+      outline: 2px solid rgba(220, 53, 69, .95);
+      outline-offset: 1px;
+    }
+
     html[data-pg-can-moderate-curation="false"] .photo-container:not(.pg-curation-requested-by-me)
       .pg-curation-details-button {
       display: none !important;
@@ -163,13 +170,34 @@
       right: .35rem;
       top: .35rem;
       border: 0;
-      border-radius: 999px;
-      padding: .2rem .45rem;
+      border-radius: 50%;
+      width: 2rem;
+      height: 2rem;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
       color: #fff;
       background: rgba(25, 25, 25, .78);
-      font-size: .85rem;
-      line-height: 1.25;
+      box-shadow: 0 .12rem .3rem rgba(0, 0, 0, .28);
+      font-size: 1.05rem;
+      line-height: 1;
       cursor: pointer;
+      transform: scale(1);
+      transform-origin: center;
+      transition: transform .15s ease, background-color .15s ease, box-shadow .15s ease;
+    }
+
+    .pg-curation-details-button:hover,
+    .pg-curation-details-button:focus-visible {
+      background: rgba(25, 25, 25, .95);
+      box-shadow: 0 .25rem .55rem rgba(0, 0, 0, .38);
+      transform: scale(1.14);
+    }
+
+    .pg-curation-details-button:focus-visible {
+      outline: 2px solid var(--bs-primary, #0d6efd);
+      outline-offset: 2px;
     }
 
     #pg-curation-details-dialog {
