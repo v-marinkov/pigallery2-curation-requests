@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0
+## 1.0.0
 
 - Renamed the project to PiGallery2 Curation Requests.
 - Added general correction categories for faces, tags, location, date/time, title/caption, duplicates, and other issues.
