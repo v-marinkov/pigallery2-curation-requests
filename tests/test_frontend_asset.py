@@ -18,6 +18,22 @@ class FrontendAssetTests(unittest.TestCase):
         self.assertIn("switchContainer.className = 'form-check form-switch'", source)
         self.assertNotIn("document.getElementById('button-frame-menu')", source)
 
+    def test_boolean_popup_headings_are_hidden_without_hiding_comment_label(self):
+        source = FRONTEND_ASSET.read_text(encoding="utf-8")
+
+        for field_id in (
+            "deletion",
+            "faces",
+            "tags",
+            "location",
+            "dateTime",
+            "titleCaption",
+            "duplicate",
+            "other",
+        ):
+            self.assertIn(f'label.form-label[for="custom_{field_id}"]', source)
+        self.assertNotIn('label.form-label[for="custom_comment"]', source)
+
 
 if __name__ == "__main__":
     unittest.main()

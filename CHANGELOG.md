@@ -8,6 +8,7 @@
 - Added authenticated in-gallery request details and comments without projecting comment text into keywords.
 - Added flat category saved searches alongside the existing deletion queues.
 - Added a per-user, browser-local Curation mode toggle inside PiGallery2's Tools submenu.
+- Simplified the request popup by removing repeated checkbox headings and adding visual category icons.
 - Extended the host review report to include metadata correction requests while keeping the deletion executor deletion-only.
 - Preserved the existing deletion schema, approval fingerprints, queue locking, and defensive executor.
 

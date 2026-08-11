@@ -108,6 +108,21 @@ it('executes general curation and deletion workflows without changing the photo'
       buttons.get('Request curation')?.config.popup.customFields.map((field: any) => field.id),
       ['deletion', 'faces', 'tags', 'location', 'dateTime', 'titleCaption', 'duplicate', 'other', 'comment']
     );
+    assert.deepEqual(
+      buttons.get('Request curation')?.config.popup.customFields
+        .filter((field: any) => field.type === 'boolean')
+        .map((field: any) => field.label),
+      [
+        '🗑 Request deletion',
+        '👤 Wrong or missing faces',
+        '🏷 Wrong or missing tags',
+        '📍 Wrong or missing location',
+        '🕒 Wrong date or time',
+        '📝 Wrong or missing title/caption',
+        '🖼 Duplicate photo',
+        '❓ Other'
+      ]
+    );
     assert.equal(buttons.get('Cancel my curation requests')?.config.minUserRole, UserRoles.User);
     assert.equal(buttons.get('Resolve metadata requests (admin only)')?.config.minUserRole, UserRoles.Admin);
     assert.equal(buttons.get('Approve deletion (admin only)')?.config.minUserRole, UserRoles.Admin);

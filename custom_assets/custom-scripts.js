@@ -54,6 +54,19 @@
       display: none !important;
     }
 
+    /* PiGallery2 currently repeats boolean labels as a heading and beside the
+       checkbox. Hide only this extension's redundant headings. */
+    .modal-body label.form-label[for="custom_deletion"],
+    .modal-body label.form-label[for="custom_faces"],
+    .modal-body label.form-label[for="custom_tags"],
+    .modal-body label.form-label[for="custom_location"],
+    .modal-body label.form-label[for="custom_dateTime"],
+    .modal-body label.form-label[for="custom_titleCaption"],
+    .modal-body label.form-label[for="custom_duplicate"],
+    .modal-body label.form-label[for="custom_other"] {
+      display: none !important;
+    }
+
     html[data-pg-can-moderate-curation="false"] button[title="Resolve metadata requests (admin only)"],
     html[data-pg-can-moderate-curation="false"] button[title="Dismiss metadata requests (admin only)"],
     html[data-pg-can-moderate-curation="false"] button[title="Approve deletion (admin only)"],

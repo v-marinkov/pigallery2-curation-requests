@@ -227,14 +227,14 @@ export const init = async (extension: IExtensionObject<CurationConfig>): Promise
       body: 'Select one or more problems. Nothing in the photo library is changed until an administrator reviews the request.',
       buttonString: 'Submit request',
       customFields: [
-        {id: 'deletion', label: 'Request deletion', type: 'boolean', defaultValue: false},
-        {id: 'faces', label: 'Wrong or missing faces', type: 'boolean', defaultValue: false},
-        {id: 'tags', label: 'Wrong or missing tags', type: 'boolean', defaultValue: false},
-        {id: 'location', label: 'Wrong or missing location', type: 'boolean', defaultValue: false},
-        {id: 'dateTime', label: 'Wrong date or time', type: 'boolean', defaultValue: false},
-        {id: 'titleCaption', label: 'Wrong or missing title/caption', type: 'boolean', defaultValue: false},
-        {id: 'duplicate', label: 'Duplicate photo', type: 'boolean', defaultValue: false},
-        {id: 'other', label: 'Other', type: 'boolean', defaultValue: false},
+        {id: 'deletion', label: '🗑 Request deletion', type: 'boolean', defaultValue: false},
+        {id: 'faces', label: '👤 Wrong or missing faces', type: 'boolean', defaultValue: false},
+        {id: 'tags', label: '🏷 Wrong or missing tags', type: 'boolean', defaultValue: false},
+        {id: 'location', label: '📍 Wrong or missing location', type: 'boolean', defaultValue: false},
+        {id: 'dateTime', label: '🕒 Wrong date or time', type: 'boolean', defaultValue: false},
+        {id: 'titleCaption', label: '📝 Wrong or missing title/caption', type: 'boolean', defaultValue: false},
+        {id: 'duplicate', label: '🖼 Duplicate photo', type: 'boolean', defaultValue: false},
+        {id: 'other', label: '❓ Other', type: 'boolean', defaultValue: false},
         {id: 'comment', label: 'Comment (optional)', type: 'string', defaultValue: ''}
       ]
     }

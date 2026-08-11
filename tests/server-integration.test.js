@@ -130,6 +130,18 @@ const server_1 = require("../server");
         ]);
         strict_1.default.equal(buttons.get('Request curation')?.config.minUserRole, UserDTO_1.UserRoles.User);
         strict_1.default.deepEqual(buttons.get('Request curation')?.config.popup.customFields.map((field) => field.id), ['deletion', 'faces', 'tags', 'location', 'dateTime', 'titleCaption', 'duplicate', 'other', 'comment']);
+        strict_1.default.deepEqual(buttons.get('Request curation')?.config.popup.customFields
+            .filter((field) => field.type === 'boolean')
+            .map((field) => field.label), [
+            '🗑 Request deletion',
+            '👤 Wrong or missing faces',
+            '🏷 Wrong or missing tags',
+            '📍 Wrong or missing location',
+            '🕒 Wrong date or time',
+            '📝 Wrong or missing title/caption',
+            '🖼 Duplicate photo',
+            '❓ Other'
+        ]);
         strict_1.default.equal(buttons.get('Cancel my curation requests')?.config.minUserRole, UserDTO_1.UserRoles.User);
         strict_1.default.equal(buttons.get('Resolve metadata requests (admin only)')?.config.minUserRole, UserDTO_1.UserRoles.Admin);
         strict_1.default.equal(buttons.get('Approve deletion (admin only)')?.config.minUserRole, UserDTO_1.UserRoles.Admin);
