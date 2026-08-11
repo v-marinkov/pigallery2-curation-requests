@@ -38,6 +38,12 @@ const canRequestCuration = (config, user) => {
 };
 const selectedRequestTypes = (body) => {
     const fields = body?.data?.customFields || {};
+    if (fields.deletion === true) {
+        // Deletion is intentionally exclusive. Do not trust the browser to clear
+        // correction fields: a crafted request containing both still creates only
+        // the deletion request.
+        return { deletion: true, metadata: [] };
+    }
     const metadata = [];
     const options = [
         ['faces', 'faces'],
@@ -53,7 +59,7 @@ const selectedRequestTypes = (body) => {
             metadata.push(category);
         }
     }
-    return { deletion: fields.deletion === true, metadata };
+    return { deletion: false, metadata };
 };
 const sendError = (res, code, message) => {
     res.json({ error: { code, message }, result: null });

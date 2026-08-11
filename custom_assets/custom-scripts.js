@@ -10,6 +10,9 @@
   const TAG_REQUESTED_BY_PREFIX = 'pg-curation:requested-by:';
   const TAG_ITEM_PREFIX = 'pg-curation:item:';
   const MODE_STORAGE_PREFIX = 'pg2-curation-mode:';
+  const METADATA_FIELD_IDS = [
+    'faces', 'tags', 'location', 'dateTime', 'titleCaption', 'duplicate', 'other'
+  ];
   const ACTION_TITLES = [
     'Request curation',
     'Cancel my curation requests',
@@ -67,6 +70,24 @@
       display: none !important;
     }
 
+    .pg-curation-deletion-option {
+      margin-bottom: 1.5rem !important;
+      padding: .8rem .9rem;
+      border: 1px solid var(--bs-danger, #dc3545);
+      border-left-width: .35rem;
+      border-radius: .4rem;
+      background: rgba(220, 53, 69, .08);
+    }
+
+    .pg-curation-deletion-option .form-check-label,
+    .pg-curation-deletion-warning {
+      color: var(--bs-danger, #dc3545);
+    }
+
+    .pg-curation-deletion-option .form-check-label { font-weight: 600; }
+    .pg-curation-deletion-warning { display: block; margin-top: .35rem; }
+    .pg-curation-disabled-option { opacity: .5; }
+
     html[data-pg-can-moderate-curation="false"] button[title="Resolve metadata requests (admin only)"],
     html[data-pg-can-moderate-curation="false"] button[title="Dismiss metadata requests (admin only)"],
     html[data-pg-can-moderate-curation="false"] button[title="Approve deletion (admin only)"],
@@ -82,6 +103,24 @@
     .photo-container:not(.pg-curation-delete-pending) button[title="Approve deletion (admin only)"],
     .photo-container:not(.pg-curation-has-deletion) button[title="Decline deletion (admin only)"] {
       display: none !important;
+    }
+
+    /* A deletion decision takes precedence. Existing metadata requests remain
+       in SQLite and become actionable again if deletion is declined/cancelled. */
+    .photo-container.pg-curation-has-deletion button[title="Resolve metadata requests (admin only)"],
+    .photo-container.pg-curation-has-deletion button[title="Dismiss metadata requests (admin only)"] {
+      display: none !important;
+    }
+
+    .photo-container button[title="Approve deletion (admin only)"] {
+      color: #fff !important;
+      border-color: var(--bs-danger, #dc3545) !important;
+      background: var(--bs-danger, #dc3545) !important;
+    }
+
+    .photo-container button[title="Approve deletion (admin only)"]:hover,
+    .photo-container button[title="Approve deletion (admin only)"]:focus-visible {
+      background: #bb2d3b !important;
     }
 
     html[data-pg-can-moderate-curation="false"] .photo-container:not(.pg-curation-requested-by-me)
@@ -154,6 +193,47 @@
   };
 
   root.dataset.pgCurationMode = readStoredMode() ? 'enabled' : 'disabled';
+
+  const enhanceRequestPopup = () => {
+    const deletionInput = document.getElementById('custom_deletion');
+    const deletionOption = deletionInput?.closest('.mb-3');
+    if (!deletionInput || !deletionOption) {
+      return;
+    }
+
+    deletionOption.classList.add('pg-curation-deletion-option');
+    if (!deletionOption.querySelector('.pg-curation-deletion-warning')) {
+      const warning = document.createElement('small');
+      warning.id = 'pg-curation-deletion-warning';
+      warning.className = 'pg-curation-deletion-warning';
+      warning.textContent = 'Selecting deletion clears and disables all correction options below.';
+      deletionOption.appendChild(warning);
+      deletionInput.setAttribute('aria-describedby', warning.id);
+    }
+
+    const synchronizeExclusiveChoice = () => {
+      const deletionSelected = deletionInput.checked;
+      const metadataInputs = METADATA_FIELD_IDS
+        .map(fieldId => document.getElementById(`custom_${fieldId}`))
+        .filter(Boolean);
+      for (const input of metadataInputs) {
+        if (deletionSelected && input.checked) {
+          // A real click keeps PiGallery2's Angular form model synchronized.
+          input.click();
+        }
+        input.disabled = deletionSelected;
+        input.closest('.mb-3')?.classList.toggle(
+          'pg-curation-disabled-option', deletionSelected
+        );
+      }
+    };
+
+    if (deletionInput.dataset.pgCurationExclusiveBound !== 'true') {
+      deletionInput.dataset.pgCurationExclusiveBound = 'true';
+      deletionInput.addEventListener('change', synchronizeExclusiveChoice);
+    }
+    synchronizeExclusiveChoice();
+  };
 
   const requesterTagFor = username => {
     const safeName = username
@@ -465,12 +545,14 @@
       refreshScheduled = false;
       classifyAllPhotos();
       ensureModeToggle();
+      enhanceRequestPopup();
     });
   };
 
   const startObserver = () => {
     classifyAllPhotos();
     ensureModeToggle();
+    enhanceRequestPopup();
     const observer = new MutationObserver(scheduleRefresh);
     observer.observe(document.body, {childList: true, subtree: true, characterData: true});
     void loadPermissions();

@@ -93,7 +93,7 @@ All curation buttons are hidden while Curation mode is disabled. When enabled:
 
 - authorized requesters see **Request curation**;
 - an owner with active requests sees **Cancel my curation requests**;
-- administrators see metadata Resolve/Dismiss only when metadata requests are open;
+- administrators see metadata Resolve/Dismiss only when metadata requests are open and no deletion workflow is active;
 - administrators see deletion Approve only when deletion is pending;
 - administrators see deletion Decline while deletion is pending, approved, or in error;
 - a comment badge appears for administrators and for owners of requests on that photo.
@@ -101,6 +101,8 @@ All curation buttons are hidden while Curation mode is disabled. When enabled:
 Cancelling withdraws all active requests made by that user for that photo. It never affects requests made by another account.
 
 Resolving or dismissing metadata currently closes every open non-deletion request on that photo in one administrator action. Deletion state remains independent.
+
+Deletion is an exclusive request choice. Selecting it clears and disables the metadata categories in the popup, and the server ignores metadata flags in any request that also contains deletion. If an older metadata request and an active deletion request coexist, only the deletion moderation controls are shown. The preserved metadata request becomes actionable again if deletion is declined or cancelled.
 
 ## Curation mode
 

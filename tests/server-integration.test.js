@@ -179,16 +179,13 @@ const server_1 = require("../server");
         strict_1.default.ok(media.metadata.keywords.includes('family'));
         strict_1.default.ok(media.metadata.keywords.includes('pg-curation:delete-pending'));
         strict_1.default.ok(media.metadata.keywords.includes('pg-curation:open'));
-        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:category:faces'));
-        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:category:other'));
+        strict_1.default.ok(!media.metadata.keywords.some((keyword) => keyword.startsWith('pg-curation:category:')));
         strict_1.default.ok(media.metadata.keywords.includes('pg-curation:requested-by:anna'));
         const itemTag = media.metadata.keywords.find((keyword) => keyword.startsWith('pg-curation:item:'));
         strict_1.default.match(itemTag || '', /^pg-curation:item:[a-f0-9]{32}$/);
         const token = itemTag.split(':').at(-1);
         const ownerDetails = jsonRoutes.get('request-details/:token')?.callback({ token }, undefined, { id: 1, name: 'anna', role: UserDTO_1.UserRoles.User });
-        strict_1.default.deepEqual(ownerDetails.requests.map((request) => request.category), [
-            'deletion', 'faces', 'other'
-        ]);
+        strict_1.default.deepEqual(ownerDetails.requests.map((request) => request.category), ['deletion']);
         const strangerDetails = jsonRoutes.get('request-details/:token')?.callback({ token }, undefined, { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User });
         strict_1.default.deepEqual(strangerDetails, { requests: [] });
         await buttons.get('Resolve metadata requests (admin only)').callback({}, { data: { customFields: { confirm: true } } }, { id: 2, name: 'bob', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
@@ -196,13 +193,9 @@ const server_1 = require("../server");
         const dbPath = path.join(databaseRoot, 'curation', 'curation.sqlite');
         const database = new better_sqlite3_1.default(dbPath, { readonly: true });
         strict_1.default.deepEqual(database.prepare('SELECT state, requested_by_user_name, reason FROM deletion_items JOIN deletion_requests ON deletion_items.id = deletion_requests.deletion_item_id').get(), { state: 'PENDING', requested_by_user_name: 'anna', reason: 'Duplicate and missing people' });
-        strict_1.default.deepEqual(database.prepare('SELECT category, state, comment FROM metadata_requests ORDER BY id').all(), [
-            { category: 'faces', state: 'OPEN', comment: 'Duplicate and missing people' },
-            { category: 'other', state: 'OPEN', comment: 'Duplicate and missing people' }
-        ]);
+        strict_1.default.deepEqual(database.prepare('SELECT category, state, comment FROM metadata_requests ORDER BY id').all(), []);
         database.close();
         await buttons.get('Approve deletion (admin only)').callback({}, { data: { customFields: { confirm: true } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
-        await buttons.get('Resolve metadata requests (admin only)').callback({}, { data: { customFields: { confirm: true, resolutionComment: 'XMP fixed' } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
         strict_1.default.ok(media.metadata.keywords.includes('pg-curation:delete-approved'));
         strict_1.default.ok(!media.metadata.keywords.some((keyword) => keyword.startsWith('pg-curation:category:')));
         const reindexed = await metadataAfter({
@@ -212,7 +205,17 @@ const server_1 = require("../server");
         strict_1.default.ok(reindexed.keywords.includes('pg-curation:delete-approved'));
         await buttons.get('Cancel my curation requests').callback({}, { data: { customFields: { confirm: true } } }, { id: 1, name: 'anna', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
         strict_1.default.deepEqual(media.metadata.keywords, ['family']);
-        strict_1.default.equal(saved.length, 4);
+        await buttons.get('Request curation').callback({}, { data: { customFields: {
+                    faces: true,
+                    other: true,
+                    comment: 'Missing people and another correction'
+                } } }, { id: 1, name: 'anna', role: UserDTO_1.UserRoles.User }, media, mediaRepository);
+        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:category:faces'));
+        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:category:other'));
+        strict_1.default.ok(!media.metadata.keywords.includes('pg-curation:delete-pending'));
+        await buttons.get('Resolve metadata requests (admin only)').callback({}, { data: { customFields: { confirm: true, resolutionComment: 'XMP fixed' } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
+        strict_1.default.deepEqual(media.metadata.keywords, ['family']);
+        strict_1.default.equal(saved.length, 5);
         strict_1.default.ok(warnings.some(message => message.includes('blocked unauthorized attempt')));
     }
     finally {

@@ -59,6 +59,12 @@ type SelectedRequestTypes = {
 
 const selectedRequestTypes = (body: IMediaRequestBody | undefined): SelectedRequestTypes => {
   const fields = body?.data?.customFields || {};
+  if (fields.deletion === true) {
+    // Deletion is intentionally exclusive. Do not trust the browser to clear
+    // correction fields: a crafted request containing both still creates only
+    // the deletion request.
+    return {deletion: true, metadata: []};
+  }
   const metadata: MetadataCategory[] = [];
   const options: Array<[string, MetadataCategory]> = [
     ['faces', 'faces'],
@@ -74,7 +80,7 @@ const selectedRequestTypes = (body: IMediaRequestBody | undefined): SelectedRequ
       metadata.push(category);
     }
   }
-  return {deletion: fields.deletion === true, metadata};
+  return {deletion: false, metadata};
 };
 
 const sendError = (res: Response, code: ErrorCodes, message: string): void => {

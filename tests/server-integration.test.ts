@@ -198,8 +198,9 @@ it('executes general curation and deletion workflows without changing the photo'
     assert.ok(media.metadata.keywords.includes('family'));
     assert.ok(media.metadata.keywords.includes('pg-curation:delete-pending'));
     assert.ok(media.metadata.keywords.includes('pg-curation:open'));
-    assert.ok(media.metadata.keywords.includes('pg-curation:category:faces'));
-    assert.ok(media.metadata.keywords.includes('pg-curation:category:other'));
+    assert.ok(!media.metadata.keywords.some(
+      (keyword: string) => keyword.startsWith('pg-curation:category:')
+    ));
     assert.ok(media.metadata.keywords.includes('pg-curation:requested-by:anna'));
     const itemTag = media.metadata.keywords.find((keyword: string) => keyword.startsWith('pg-curation:item:'));
     assert.match(itemTag || '', /^pg-curation:item:[a-f0-9]{32}$/);
@@ -208,9 +209,7 @@ it('executes general curation and deletion workflows without changing the photo'
     const ownerDetails = jsonRoutes.get('request-details/:token')?.callback(
       {token}, undefined, {id: 1, name: 'anna', role: UserRoles.User}
     ) as any;
-    assert.deepEqual(ownerDetails.requests.map((request: any) => request.category), [
-      'deletion', 'faces', 'other'
-    ]);
+    assert.deepEqual(ownerDetails.requests.map((request: any) => request.category), ['deletion']);
     const strangerDetails = jsonRoutes.get('request-details/:token')?.callback(
       {token}, undefined, {id: 2, name: 'bob', role: UserRoles.User}
     ) as any;
@@ -233,19 +232,12 @@ it('executes general curation and deletion workflows without changing the photo'
     );
     assert.deepEqual(
       database.prepare('SELECT category, state, comment FROM metadata_requests ORDER BY id').all(),
-      [
-        {category: 'faces', state: 'OPEN', comment: 'Duplicate and missing people'},
-        {category: 'other', state: 'OPEN', comment: 'Duplicate and missing people'}
-      ]
+      []
     );
     database.close();
 
     await buttons.get('Approve deletion (admin only)')!.callback(
       {}, {data: {customFields: {confirm: true}}},
-      {id: 9, name: 'admin', role: UserRoles.Admin}, media, mediaRepository
-    );
-    await buttons.get('Resolve metadata requests (admin only)')!.callback(
-      {}, {data: {customFields: {confirm: true, resolutionComment: 'XMP fixed'}}},
       {id: 9, name: 'admin', role: UserRoles.Admin}, media, mediaRepository
     );
     assert.ok(media.metadata.keywords.includes('pg-curation:delete-approved'));
@@ -262,7 +254,28 @@ it('executes general curation and deletion workflows without changing the photo'
       {id: 1, name: 'anna', role: UserRoles.User}, media, mediaRepository
     );
     assert.deepEqual(media.metadata.keywords, ['family']);
-    assert.equal(saved.length, 4);
+
+    await buttons.get('Request curation')!.callback(
+      {},
+      {data: {customFields: {
+        faces: true,
+        other: true,
+        comment: 'Missing people and another correction'
+      }}},
+      {id: 1, name: 'anna', role: UserRoles.User},
+      media,
+      mediaRepository
+    );
+    assert.ok(media.metadata.keywords.includes('pg-curation:category:faces'));
+    assert.ok(media.metadata.keywords.includes('pg-curation:category:other'));
+    assert.ok(!media.metadata.keywords.includes('pg-curation:delete-pending'));
+
+    await buttons.get('Resolve metadata requests (admin only)')!.callback(
+      {}, {data: {customFields: {confirm: true, resolutionComment: 'XMP fixed'}}},
+      {id: 9, name: 'admin', role: UserRoles.Admin}, media, mediaRepository
+    );
+    assert.deepEqual(media.metadata.keywords, ['family']);
+    assert.equal(saved.length, 5);
     assert.ok(warnings.some(message => message.includes('blocked unauthorized attempt')));
   } finally {
     await cleanUp();

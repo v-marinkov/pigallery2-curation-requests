@@ -34,6 +34,16 @@ class FrontendAssetTests(unittest.TestCase):
             self.assertIn(f'label.form-label[for="custom_{field_id}"]', source)
         self.assertNotIn('label.form-label[for="custom_comment"]', source)
 
+    def test_deletion_is_presented_as_an_exclusive_destructive_choice(self):
+        source = FRONTEND_ASSET.read_text(encoding="utf-8")
+
+        self.assertIn("deletionOption.classList.add('pg-curation-deletion-option')", source)
+        self.assertIn("input.disabled = deletionSelected", source)
+        self.assertIn("if (deletionSelected && input.checked)", source)
+        self.assertIn("input.click()", source)
+        self.assertIn(".photo-container.pg-curation-has-deletion", source)
+        self.assertIn('button[title="Approve deletion (admin only)"]', source)
+
 
 if __name__ == "__main__":
     unittest.main()
