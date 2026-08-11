@@ -3,6 +3,7 @@ export const TAG_DELETE_PENDING = `${CURATION_PREFIX}delete-pending`;
 export const TAG_DELETE_APPROVED = `${CURATION_PREFIX}delete-approved`;
 export const TAG_DELETE_ERROR = `${CURATION_PREFIX}delete-error`;
 export const TAG_REQUESTED_BY_PREFIX = `${CURATION_PREFIX}requested-by:`;
+export const TAG_DELETE_REQUESTED_BY_PREFIX = `${CURATION_PREFIX}delete-requested-by:`;
 export const TAG_CURATION_OPEN = `${CURATION_PREFIX}open`;
 export const TAG_CATEGORY_PREFIX = `${CURATION_PREFIX}category:`;
 export const TAG_ITEM_PREFIX = `${CURATION_PREFIX}item:`;
@@ -92,6 +93,7 @@ export interface CurationItemInfo {
 export interface CurationProjection {
   state: DeletionState | null;
   requesterNames: string[];
+  deletionRequesterNames?: string[];
   metadataCategories?: MetadataCategory[];
   itemToken?: string | null;
 }
@@ -135,9 +137,9 @@ export const applyCurationState = (keywords: string[] | null | undefined, state:
   return applyCurationProjection(keywords, state ? {state, requesterNames: []} : null);
 };
 
-const requesterTag = (name: string): string | null => {
+const requesterTag = (prefix: string, name: string): string | null => {
   const safeName = name.replace(/,/g, '‚').replace(/[\r\n]+/g, ' ').trim().slice(0, 100);
-  return safeName ? `${TAG_REQUESTED_BY_PREFIX}${safeName}` : null;
+  return safeName ? `${prefix}${safeName}` : null;
 };
 
 export const applyCurationProjection = (
@@ -161,9 +163,20 @@ export const applyCurationProjection = (
     }
     const names = [...new Set(projection.requesterNames.map(name => name.trim()).filter(Boolean))];
     for (const name of names) {
-      const requestedByTag = requesterTag(name);
+      const requestedByTag = requesterTag(TAG_REQUESTED_BY_PREFIX, name);
       if (requestedByTag) {
         result.push(requestedByTag);
+      }
+    }
+    if (activeDeletion) {
+      const deletionRequesterNames = [
+        ...new Set((projection.deletionRequesterNames || []).map(name => name.trim()).filter(Boolean))
+      ];
+      for (const name of deletionRequesterNames) {
+        const requestedByTag = requesterTag(TAG_DELETE_REQUESTED_BY_PREFIX, name);
+        if (requestedByTag) {
+          result.push(requestedByTag);
+        }
       }
     }
   }

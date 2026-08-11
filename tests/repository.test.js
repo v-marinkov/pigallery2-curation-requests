@@ -88,6 +88,7 @@ const fingerprint = {
         const projection = repository.getProjection('2024/Christmas/IMG_1234.jpg');
         strict_1.default.equal(projection?.state, 'PENDING');
         strict_1.default.deepEqual(projection?.requesterNames, ['anna', 'bob']);
+        strict_1.default.deepEqual(projection?.deletionRequesterNames, ['anna', 'bob']);
         strict_1.default.deepEqual(projection?.metadataCategories, []);
         strict_1.default.match(projection?.itemToken || '', /^[a-f0-9]{32}$/);
         repository.close();
@@ -145,6 +146,7 @@ const fingerprint = {
         const projection = repository.getProjection('photo.jpg');
         strict_1.default.equal(projection?.state, 'PENDING');
         strict_1.default.deepEqual(projection?.requesterNames, ['bob']);
+        strict_1.default.deepEqual(projection?.deletionRequesterNames, ['bob']);
         const duplicate = repository.withdrawOwnDeletionRequest('photo.jpg', { id: '1', name: 'anna' });
         strict_1.default.equal(duplicate.status, 'not_requester');
         strict_1.default.equal(duplicate.remainingRequesters, 1);
@@ -198,6 +200,7 @@ const fingerprint = {
         strict_1.default.equal(projection?.state, null);
         strict_1.default.deepEqual(projection?.metadataCategories, ['faces', 'location', 'tags']);
         strict_1.default.deepEqual(projection?.requesterNames, ['anna', 'bob']);
+        strict_1.default.deepEqual(projection?.deletionRequesterNames, []);
         strict_1.default.match(projection?.itemToken || '', /^[a-f0-9]{32}$/);
         const ownerDetails = repository.getClientRequestDetails(projection.itemToken, { id: '1', name: 'anna' }, false);
         strict_1.default.deepEqual(ownerDetails.map(detail => detail.category), ['faces', 'location']);
@@ -206,6 +209,23 @@ const fingerprint = {
         strict_1.default.deepEqual(repository.getClientRequestDetails(projection.itemToken, { id: '3', name: 'charlie' }, false), []);
         const adminDetails = repository.getClientRequestDetails(projection.itemToken, { id: '9', name: 'admin' }, true);
         strict_1.default.deepEqual(adminDetails.map(detail => detail.category), ['faces', 'location', 'tags']);
+        repository.close();
+    });
+    (0, node_test_1.it)('blocks metadata only for the owner of an active deletion request', () => {
+        const repository = createRepository();
+        repository.requestDeletion({
+            relativePath: 'photo.jpg', mediaType: 'photo', fingerprint,
+            actor: { id: '1', name: 'anna' }
+        });
+        strict_1.default.throws(() => repository.requestMetadata({
+            relativePath: 'photo.jpg', mediaType: 'photo', categories: ['faces'],
+            actor: { id: '1', name: 'anna' }
+        }), /while your deletion request is active/);
+        strict_1.default.deepEqual(repository.requestMetadata({
+            relativePath: 'photo.jpg', mediaType: 'photo', categories: ['tags'],
+            actor: { id: '2', name: 'bob' }
+        }), { created: ['tags'], existing: [] });
+        strict_1.default.deepEqual(repository.getProjection('photo.jpg')?.metadataCategories, ['tags']);
         repository.close();
     });
     (0, node_test_1.it)('withdraws only the owners requests and lets administrators resolve what remains', () => {
@@ -250,6 +270,22 @@ const fingerprint = {
     (0, node_test_1.it)('replaces only internal curation tags', () => {
         strict_1.default.deepEqual((0, domain_1.applyCurationState)(['family', 'pg-curation:delete-pending'], 'APPROVED'), ['family', 'pg-curation:delete-approved', 'pg-curation:open']);
         strict_1.default.deepEqual((0, domain_1.applyCurationState)(['family', 'pg-curation:delete-error'], 'DECLINED'), ['family']);
+    });
+    (0, node_test_1.it)('projects deletion ownership separately from general request ownership', () => {
+        strict_1.default.deepEqual((0, domain_1.applyCurationProjection)(['family'], {
+            state: 'PENDING',
+            requesterNames: ['anna', 'bob'],
+            deletionRequesterNames: ['anna'],
+            metadataCategories: ['faces']
+        }), [
+            'family',
+            'pg-curation:delete-pending',
+            'pg-curation:open',
+            'pg-curation:category:faces',
+            'pg-curation:requested-by:anna',
+            'pg-curation:requested-by:bob',
+            'pg-curation:delete-requested-by:anna'
+        ]);
     });
     (0, node_test_1.it)('calculates a SHA-256 fingerprint from a stable file', async () => {
         const folder = (0, fs_1.mkdtempSync)(path.join((0, os_1.tmpdir)(), 'pg2-fingerprint-test-'));

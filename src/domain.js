@@ -1,11 +1,12 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.applyCurationProjection = exports.applyCurationState = exports.stateTag = exports.METADATA_REQUEST_STATES = exports.METADATA_CATEGORIES = exports.DELETION_STATES = exports.TAG_ITEM_PREFIX = exports.TAG_CATEGORY_PREFIX = exports.TAG_CURATION_OPEN = exports.TAG_REQUESTED_BY_PREFIX = exports.TAG_DELETE_ERROR = exports.TAG_DELETE_APPROVED = exports.TAG_DELETE_PENDING = exports.CURATION_PREFIX = void 0;
+exports.applyCurationProjection = exports.applyCurationState = exports.stateTag = exports.METADATA_REQUEST_STATES = exports.METADATA_CATEGORIES = exports.DELETION_STATES = exports.TAG_ITEM_PREFIX = exports.TAG_CATEGORY_PREFIX = exports.TAG_CURATION_OPEN = exports.TAG_DELETE_REQUESTED_BY_PREFIX = exports.TAG_REQUESTED_BY_PREFIX = exports.TAG_DELETE_ERROR = exports.TAG_DELETE_APPROVED = exports.TAG_DELETE_PENDING = exports.CURATION_PREFIX = void 0;
 exports.CURATION_PREFIX = 'pg-curation:';
 exports.TAG_DELETE_PENDING = `${exports.CURATION_PREFIX}delete-pending`;
 exports.TAG_DELETE_APPROVED = `${exports.CURATION_PREFIX}delete-approved`;
 exports.TAG_DELETE_ERROR = `${exports.CURATION_PREFIX}delete-error`;
 exports.TAG_REQUESTED_BY_PREFIX = `${exports.CURATION_PREFIX}requested-by:`;
+exports.TAG_DELETE_REQUESTED_BY_PREFIX = `${exports.CURATION_PREFIX}delete-requested-by:`;
 exports.TAG_CURATION_OPEN = `${exports.CURATION_PREFIX}open`;
 exports.TAG_CATEGORY_PREFIX = `${exports.CURATION_PREFIX}category:`;
 exports.TAG_ITEM_PREFIX = `${exports.CURATION_PREFIX}item:`;
@@ -33,9 +34,9 @@ const applyCurationState = (keywords, state) => {
     return (0, exports.applyCurationProjection)(keywords, state ? { state, requesterNames: [] } : null);
 };
 exports.applyCurationState = applyCurationState;
-const requesterTag = (name) => {
+const requesterTag = (prefix, name) => {
     const safeName = name.replace(/,/g, '‚').replace(/[\r\n]+/g, ' ').trim().slice(0, 100);
-    return safeName ? `${exports.TAG_REQUESTED_BY_PREFIX}${safeName}` : null;
+    return safeName ? `${prefix}${safeName}` : null;
 };
 const applyCurationProjection = (keywords, projection) => {
     const result = (keywords || []).filter(keyword => !keyword.startsWith(exports.CURATION_PREFIX));
@@ -55,9 +56,20 @@ const applyCurationProjection = (keywords, projection) => {
         }
         const names = [...new Set(projection.requesterNames.map(name => name.trim()).filter(Boolean))];
         for (const name of names) {
-            const requestedByTag = requesterTag(name);
+            const requestedByTag = requesterTag(exports.TAG_REQUESTED_BY_PREFIX, name);
             if (requestedByTag) {
                 result.push(requestedByTag);
+            }
+        }
+        if (activeDeletion) {
+            const deletionRequesterNames = [
+                ...new Set((projection.deletionRequesterNames || []).map(name => name.trim()).filter(Boolean))
+            ];
+            for (const name of deletionRequesterNames) {
+                const requestedByTag = requesterTag(exports.TAG_DELETE_REQUESTED_BY_PREFIX, name);
+                if (requestedByTag) {
+                    result.push(requestedByTag);
+                }
             }
         }
     }

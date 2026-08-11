@@ -12,16 +12,16 @@ License: **MIT**
 
 ## What it provides
 
-One **Request curation** pencil action lets an authorized user select one or more categories, in this order:
+One **Request curation** pencil action lets an authorized user select one or more categories. Metadata corrections are grouped first, followed by the separate destructive deletion choice:
 
-1. Request deletion
-2. Wrong or missing faces
-3. Wrong or missing tags
-4. Wrong or missing location
-5. Wrong date or time
-6. Wrong or missing title/caption
-7. Duplicate photo
-8. Other
+1. Wrong or missing faces
+2. Wrong or missing tags
+3. Wrong or missing location
+4. Wrong date or time
+5. Wrong or missing title/caption
+6. Duplicate photo
+7. Other
+8. Request deletion
 9. Comment (optional)
 
 The optional comment is stored in SQLite. It is never written into a photo, XMP sidecar, or PiGallery keyword.
@@ -35,7 +35,7 @@ Other functionality includes:
 - administrator-only resolution and dismissal of metadata requests;
 - in-gallery comment/details display for administrators and request owners;
 - flat saved searches for open work, every metadata category, and deletion states;
-- a per-user **Curation mode** toggle under PiGallery2's frame menu;
+- a per-user **Curation mode** toggle in PiGallery2's Tools menu;
 - a read-only host report covering metadata and deletion work;
 - a dry-run-by-default, fingerprint-verifying deletion executor;
 - automatic migration of existing version-1 deletion databases.
@@ -91,18 +91,18 @@ The browser JavaScript is presentation logic. Removing or changing it cannot byp
 
 All curation buttons are hidden while Curation mode is disabled. When enabled:
 
-- authorized requesters see **Request curation**;
+- authorized requesters see **Request curation**, except on photos for which that same user has an active deletion request;
 - an owner with active requests sees **Cancel my curation requests**;
 - administrators see metadata Resolve/Dismiss only when metadata requests are open and no deletion workflow is active;
 - administrators see deletion Approve only when deletion is pending;
 - administrators see deletion Decline while deletion is pending, approved, or in error;
-- a comment badge appears for administrators and for owners of requests on that photo.
+- a top-right request-details badge appears for administrators and for owners of requests on that photo.
 
 Cancelling withdraws all active requests made by that user for that photo. It never affects requests made by another account.
 
 Resolving or dismissing metadata currently closes every open non-deletion request on that photo in one administrator action. Deletion state remains independent.
 
-Deletion is an exclusive request choice. Selecting it clears and disables the metadata categories in the popup, and the server ignores metadata flags in any request that also contains deletion. If an older metadata request and an active deletion request coexist, only the deletion moderation controls are shown. The preserved metadata request becomes actionable again if deletion is declined or cancelled.
+Deletion is an exclusive request choice. Selecting it clears and disables the metadata categories in the popup, and the server ignores metadata flags in any request that also contains deletion. A user who owns an active deletion request cannot add metadata requests for that photo, even by bypassing the frontend; other users remain free to report metadata problems. If an older metadata request and an active deletion request coexist, only the deletion moderation controls are shown. The preserved metadata request becomes actionable again if deletion is declined or cancelled.
 
 ## Curation mode
 
@@ -110,13 +110,13 @@ The frontend script inserts a **Curation mode** switch inside PiGallery2's lazil
 
 - It defaults to disabled for a user who has not selected a preference.
 - Its value is stored in browser `localStorage`, keyed by PiGallery2 user ID.
-- It controls only button and comment-badge visibility.
+- It controls only action-button and request-details-badge visibility.
 - It is not a permission or security boundary.
 - If PiGallery2 changes the menu DOM and injection fails, curation actions remain hidden rather than becoming broadly visible.
 
 ## Comments in the gallery
 
-Synthetic cached keywords include an opaque 32-character item token, not the comment. Clicking the `💬` badge asks an authenticated extension endpoint for details.
+Synthetic cached keywords include an opaque 32-character item token, not the comment. Clicking the top-right `ⓘ` badge asks an authenticated extension endpoint for details.
 
 Administrators receive all active requests for that item. Ordinary users receive only requests stored under their authenticated user ID. The dialog renders all values as text, preventing request comments from being interpreted as HTML.
 
@@ -131,6 +131,7 @@ pg-curation:category:tags
 pg-curation:delete-pending
 pg-curation:delete-approved
 pg-curation:requested-by:family-user
+pg-curation:delete-requested-by:family-user
 pg-curation:item:0123456789abcdef0123456789abcdef
 ```
 
@@ -485,7 +486,7 @@ Check:
 
 The frontend intentionally fails closed.
 
-### Comment badge shows no details
+### Request-details badge shows no details
 
 Ordinary users see only their own request rows. Administrators see every active request. Confirm that the session is authenticated and `/request-details/<token>` succeeds.
 

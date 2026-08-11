@@ -10,6 +10,7 @@
 - Added a per-user, browser-local Curation mode toggle inside PiGallery2's Tools submenu.
 - Simplified the request popup by removing repeated checkbox headings and adding visual category icons.
 - Made deletion an exclusive, server-enforced request choice and prioritized its red moderation action over metadata controls.
+- Grouped metadata choices above deletion, added per-user deletion ownership visibility, moved the details badge, and removed repeated confirmation headings.
 - Extended the host review report to include metadata correction requests while keeping the deletion executor deletion-only.
 - Preserved the existing deletion schema, approval fingerprints, queue locking, and defensive executor.
 

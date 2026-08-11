@@ -8,6 +8,7 @@
   const TAG_DELETE_ERROR = 'pg-curation:delete-error';
   const TAG_CATEGORY_PREFIX = 'pg-curation:category:';
   const TAG_REQUESTED_BY_PREFIX = 'pg-curation:requested-by:';
+  const TAG_DELETE_REQUESTED_BY_PREFIX = 'pg-curation:delete-requested-by:';
   const TAG_ITEM_PREFIX = 'pg-curation:item:';
   const MODE_STORAGE_PREFIX = 'pg2-curation-mode:';
   const METADATA_FIELD_IDS = [
@@ -66,8 +67,30 @@
     .modal-body label.form-label[for="custom_dateTime"],
     .modal-body label.form-label[for="custom_titleCaption"],
     .modal-body label.form-label[for="custom_duplicate"],
-    .modal-body label.form-label[for="custom_other"] {
+    .modal-body label.form-label[for="custom_other"],
+    .modal-body label.form-label[for="custom_confirm"] {
       display: none !important;
+    }
+
+    .pg-curation-metadata-option {
+      margin-bottom: 0 !important;
+      padding: .3rem .9rem;
+      border-right: 1px solid rgba(108, 117, 125, .45);
+      border-left: .35rem solid var(--bs-secondary, #6c757d);
+      background: rgba(108, 117, 125, .09);
+    }
+
+    .pg-curation-metadata-first {
+      padding-top: .8rem;
+      border-top: 1px solid rgba(108, 117, 125, .45);
+      border-radius: .4rem .4rem 0 0;
+    }
+
+    .pg-curation-metadata-last {
+      margin-bottom: 1.5rem !important;
+      padding-bottom: .8rem;
+      border-bottom: 1px solid rgba(108, 117, 125, .45);
+      border-radius: 0 0 .4rem .4rem;
     }
 
     .pg-curation-deletion-option {
@@ -112,6 +135,12 @@
       display: none !important;
     }
 
+    /* Ownership is category-specific: another user's deletion request must not
+       hide the current user's pencil. */
+    .photo-container.pg-curation-delete-requested-by-me button[title="Request curation"] {
+      display: none !important;
+    }
+
     .photo-container button[title="Approve deletion (admin only)"] {
       color: #fff !important;
       border-color: var(--bs-danger, #dc3545) !important;
@@ -132,7 +161,7 @@
       position: absolute;
       z-index: 6;
       right: .35rem;
-      bottom: .35rem;
+      top: .35rem;
       border: 0;
       border-radius: 999px;
       padding: .2rem .45rem;
@@ -202,11 +231,20 @@
     }
 
     deletionOption.classList.add('pg-curation-deletion-option');
+    const metadataInputs = METADATA_FIELD_IDS
+      .map(fieldId => document.getElementById(`custom_${fieldId}`))
+      .filter(Boolean);
+    metadataInputs.forEach((input, index) => {
+      const option = input.closest('.mb-3');
+      option?.classList.add('pg-curation-metadata-option');
+      option?.classList.toggle('pg-curation-metadata-first', index === 0);
+      option?.classList.toggle('pg-curation-metadata-last', index === metadataInputs.length - 1);
+    });
     if (!deletionOption.querySelector('.pg-curation-deletion-warning')) {
       const warning = document.createElement('small');
       warning.id = 'pg-curation-deletion-warning';
       warning.className = 'pg-curation-deletion-warning';
-      warning.textContent = 'Selecting deletion clears and disables all correction options below.';
+      warning.textContent = 'Selecting deletion clears and disables all metadata corrections above.';
       deletionOption.appendChild(warning);
       deletionInput.setAttribute('aria-describedby', warning.id);
     }
@@ -235,13 +273,13 @@
     synchronizeExclusiveChoice();
   };
 
-  const requesterTagFor = username => {
+  const requesterTagFor = (prefix, username) => {
     const safeName = username
       .replace(/,/g, '‚')
       .replace(/[\r\n]+/g, ' ')
       .trim()
       .slice(0, 100);
-    return safeName ? `${TAG_REQUESTED_BY_PREFIX}${safeName}` : '';
+    return safeName ? `${prefix}${safeName}` : '';
   };
 
   const escapeRegularExpression = value =>
@@ -275,7 +313,7 @@
       button.className = 'pg-curation-details-button';
       button.title = 'View curation request details';
       button.setAttribute('aria-label', 'View curation request details');
-      button.textContent = '💬';
+      button.textContent = 'ⓘ';
       button.addEventListener('click', event => {
         event.preventDefault();
         event.stopPropagation();
@@ -303,7 +341,15 @@
     );
     photoContainer.classList.toggle(
       'pg-curation-requested-by-me',
-      containsRenderedKeyword(keywordText, requesterTagFor(currentUsername))
+      containsRenderedKeyword(
+        keywordText, requesterTagFor(TAG_REQUESTED_BY_PREFIX, currentUsername)
+      )
+    );
+    photoContainer.classList.toggle(
+      'pg-curation-delete-requested-by-me',
+      containsRenderedKeyword(
+        keywordText, requesterTagFor(TAG_DELETE_REQUESTED_BY_PREFIX, currentUsername)
+      )
     );
     photoContainer.classList.add('pg-curation-classified');
     ensureDetailsButton(photoContainer);

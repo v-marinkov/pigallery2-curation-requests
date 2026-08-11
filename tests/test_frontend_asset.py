@@ -32,6 +32,7 @@ class FrontendAssetTests(unittest.TestCase):
             "other",
         ):
             self.assertIn(f'label.form-label[for="custom_{field_id}"]', source)
+        self.assertIn('label.form-label[for="custom_confirm"]', source)
         self.assertNotIn('label.form-label[for="custom_comment"]', source)
 
     def test_deletion_is_presented_as_an_exclusive_destructive_choice(self):
@@ -43,6 +44,23 @@ class FrontendAssetTests(unittest.TestCase):
         self.assertIn("input.click()", source)
         self.assertIn(".photo-container.pg-curation-has-deletion", source)
         self.assertIn('button[title="Approve deletion (admin only)"]', source)
+
+    def test_request_ownership_and_details_button_are_presented_per_user(self):
+        source = FRONTEND_ASSET.read_text(encoding="utf-8")
+
+        self.assertIn("TAG_DELETE_REQUESTED_BY_PREFIX", source)
+        self.assertIn("'pg-curation-delete-requested-by-me'", source)
+        self.assertIn(".photo-container.pg-curation-delete-requested-by-me", source)
+        self.assertIn("button.textContent = 'ⓘ'", source)
+        self.assertIn("top: .35rem", source)
+
+    def test_metadata_options_are_grouped_above_deletion(self):
+        source = FRONTEND_ASSET.read_text(encoding="utf-8")
+
+        self.assertIn("option?.classList.add('pg-curation-metadata-option')", source)
+        self.assertIn("'pg-curation-metadata-first'", source)
+        self.assertIn("'pg-curation-metadata-last'", source)
+        self.assertIn("metadata corrections above", source)
 
 
 if __name__ == "__main__":

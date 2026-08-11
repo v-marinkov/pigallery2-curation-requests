@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CurationRepository = exports.CURATION_REPOSITORY_API_VERSION = void 0;
 const domain_1 = require("../domain");
 const paths_1 = require("../security/paths");
-exports.CURATION_REPOSITORY_API_VERSION = 4;
+exports.CURATION_REPOSITORY_API_VERSION = 5;
 const ITEM_SELECT = `
   SELECT id,
          relative_path AS relativePath,
@@ -71,6 +71,20 @@ class CurationRepository {
     getState(relativePath) {
         return this.getItem(relativePath)?.state || null;
     }
+    hasActiveDeletionRequest(relativePathInput, userId) {
+        const relativePath = (0, paths_1.normalizeRelativeMediaPath)(relativePathInput);
+        return Boolean(this.db.prepare(`
+      SELECT 1
+        FROM deletion_items di
+        JOIN deletion_requests dr ON dr.deletion_item_id = di.id
+       WHERE di.relative_path = ?
+         AND di.state IN ('PENDING', 'APPROVED', 'ERROR')
+         AND dr.cycle = di.current_cycle
+         AND dr.requested_by_user_id = ?
+         AND dr.withdrawn_at IS NULL
+       LIMIT 1
+    `).get(relativePath, userId));
+    }
     getProjection(relativePath) {
         const normalizedPath = (0, paths_1.normalizeRelativeMediaPath)(relativePath);
         const info = this.getInfo(relativePath);
@@ -82,14 +96,16 @@ class CurationRepository {
             return null;
         }
         const media = this.db.prepare('SELECT public_token AS publicToken FROM curation_media WHERE relative_path = ?').get(normalizedPath);
+        const deletionRequesterNames = [...new Set((activeDeletion?.requests || [])
+                .filter(request => request.cycle === activeDeletion?.item.currentCycle && request.withdrawnAt === null)
+                .map(request => request.requestedByUserName))];
         return {
             state: activeDeletion?.item.state || null,
             requesterNames: [...new Set([
-                    ...(activeDeletion?.requests || [])
-                        .filter(request => request.cycle === activeDeletion?.item.currentCycle && request.withdrawnAt === null)
-                        .map(request => request.requestedByUserName),
+                    ...deletionRequesterNames,
                     ...metadataRequests.map(request => request.requestedByUserName)
                 ])],
+            deletionRequesterNames,
             metadataCategories: metadataRequests.map(request => request.category),
             itemToken: media?.publicToken || null
         };
@@ -207,6 +223,9 @@ class CurationRepository {
         }
         const comment = this.normalizeComment(input.comment);
         return this.db.transaction(() => {
+            if (this.hasActiveDeletionRequest(relativePath, input.actor.id)) {
+                throw new Error('Metadata corrections cannot be requested while your deletion request is active');
+            }
             const timestamp = this.now();
             const mediaId = this.ensureMedia(relativePath, input.mediaType, timestamp);
             const created = [];

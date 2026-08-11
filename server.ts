@@ -161,7 +161,7 @@ const cancelOwnRequestIcon = {
 };
 
 export const init = async (extension: IExtensionObject<CurationConfig>): Promise<void> => {
-  if (CURATION_REPOSITORY_API_VERSION !== 4) {
+  if (CURATION_REPOSITORY_API_VERSION !== 5) {
     throw new Error(
       'Incompatible curation-request files: replace server.js and the complete compiled src directory together'
     );
@@ -233,7 +233,6 @@ export const init = async (extension: IExtensionObject<CurationConfig>): Promise
       body: 'Select one or more problems. Nothing in the photo library is changed until an administrator reviews the request.',
       buttonString: 'Submit request',
       customFields: [
-        {id: 'deletion', label: '🗑 Request deletion', type: 'boolean', defaultValue: false},
         {id: 'faces', label: '👤 Wrong or missing faces', type: 'boolean', defaultValue: false},
         {id: 'tags', label: '🏷 Wrong or missing tags', type: 'boolean', defaultValue: false},
         {id: 'location', label: '📍 Wrong or missing location', type: 'boolean', defaultValue: false},
@@ -241,6 +240,7 @@ export const init = async (extension: IExtensionObject<CurationConfig>): Promise
         {id: 'titleCaption', label: '📝 Wrong or missing title/caption', type: 'boolean', defaultValue: false},
         {id: 'duplicate', label: '🖼 Duplicate photo', type: 'boolean', defaultValue: false},
         {id: 'other', label: '❓ Other', type: 'boolean', defaultValue: false},
+        {id: 'deletion', label: '🗑 Request deletion', type: 'boolean', defaultValue: false},
         {id: 'comment', label: 'Comment (optional)', type: 'string', defaultValue: ''}
       ]
     }
@@ -262,6 +262,22 @@ export const init = async (extension: IExtensionObject<CurationConfig>): Promise
     const mediaPaths = getMediaPaths(extension, media);
     const actor = actorFromUser(user);
     const comment = body?.data?.customFields?.comment;
+    if (
+      selected.metadata.length > 0 &&
+      curationRepository!.hasActiveDeletionRequest(mediaPaths.relativePath, actor.id)
+    ) {
+      extension.Logger.warn(
+        `${user.name}: ignored metadata request while their deletion request is active for ${mediaPaths.relativePath}`
+      );
+      // Also refresh an older cached projection so the per-user pencil becomes
+      // hidden after upgrading from a release without deletion-owner tags.
+      await saveCurationProjection(
+        media,
+        mediaRepository,
+        curationRepository!.getProjection(mediaPaths.relativePath)
+      );
+      return;
+    }
     if (selected.deletion) {
       const fingerprint = await fingerprintFile(mediaPaths.absolutePath);
       curationRepository!.requestDeletion({

@@ -6,7 +6,7 @@ import * as path from 'path';
 import Database from 'better-sqlite3';
 import {CurationDatabase} from '../src/db/database';
 import {CurationRepository} from '../src/db/repository';
-import {FileFingerprint, applyCurationState} from '../src/domain';
+import {FileFingerprint, applyCurationProjection, applyCurationState} from '../src/domain';
 import {fingerprintFile} from '../src/security/fingerprint';
 import {normalizeRelativeMediaPath} from '../src/security/paths';
 
@@ -60,6 +60,7 @@ describe('CurationRepository', () => {
     const projection = repository.getProjection('2024/Christmas/IMG_1234.jpg');
     assert.equal(projection?.state, 'PENDING');
     assert.deepEqual(projection?.requesterNames, ['anna', 'bob']);
+    assert.deepEqual(projection?.deletionRequesterNames, ['anna', 'bob']);
     assert.deepEqual(projection?.metadataCategories, []);
     assert.match(projection?.itemToken || '', /^[a-f0-9]{32}$/);
     repository.close();
@@ -126,6 +127,7 @@ describe('CurationRepository', () => {
     const projection = repository.getProjection('photo.jpg');
     assert.equal(projection?.state, 'PENDING');
     assert.deepEqual(projection?.requesterNames, ['bob']);
+    assert.deepEqual(projection?.deletionRequesterNames, ['bob']);
 
     const duplicate = repository.withdrawOwnDeletionRequest(
       'photo.jpg', {id: '1', name: 'anna'}
@@ -194,6 +196,7 @@ describe('CurationRepository', () => {
     assert.equal(projection?.state, null);
     assert.deepEqual(projection?.metadataCategories, ['faces', 'location', 'tags']);
     assert.deepEqual(projection?.requesterNames, ['anna', 'bob']);
+    assert.deepEqual(projection?.deletionRequesterNames, []);
     assert.match(projection?.itemToken || '', /^[a-f0-9]{32}$/);
 
     const ownerDetails = repository.getClientRequestDetails(
@@ -210,6 +213,31 @@ describe('CurationRepository', () => {
       projection!.itemToken!, {id: '9', name: 'admin'}, true
     );
     assert.deepEqual(adminDetails.map(detail => detail.category), ['faces', 'location', 'tags']);
+    repository.close();
+  });
+
+  it('blocks metadata only for the owner of an active deletion request', () => {
+    const repository = createRepository();
+    repository.requestDeletion({
+      relativePath: 'photo.jpg', mediaType: 'photo', fingerprint,
+      actor: {id: '1', name: 'anna'}
+    });
+
+    assert.throws(
+      () => repository.requestMetadata({
+        relativePath: 'photo.jpg', mediaType: 'photo', categories: ['faces'],
+        actor: {id: '1', name: 'anna'}
+      }),
+      /while your deletion request is active/
+    );
+    assert.deepEqual(
+      repository.requestMetadata({
+        relativePath: 'photo.jpg', mediaType: 'photo', categories: ['tags'],
+        actor: {id: '2', name: 'bob'}
+      }),
+      {created: ['tags'], existing: []}
+    );
+    assert.deepEqual(repository.getProjection('photo.jpg')?.metadataCategories, ['tags']);
     repository.close();
   });
 
@@ -274,6 +302,26 @@ describe('security and synthetic metadata', () => {
       ['family', 'pg-curation:delete-approved', 'pg-curation:open']
     );
     assert.deepEqual(applyCurationState(['family', 'pg-curation:delete-error'], 'DECLINED'), ['family']);
+  });
+
+  it('projects deletion ownership separately from general request ownership', () => {
+    assert.deepEqual(
+      applyCurationProjection(['family'], {
+        state: 'PENDING',
+        requesterNames: ['anna', 'bob'],
+        deletionRequesterNames: ['anna'],
+        metadataCategories: ['faces']
+      }),
+      [
+        'family',
+        'pg-curation:delete-pending',
+        'pg-curation:open',
+        'pg-curation:category:faces',
+        'pg-curation:requested-by:anna',
+        'pg-curation:requested-by:bob',
+        'pg-curation:delete-requested-by:anna'
+      ]
+    );
   });
 
   it('calculates a SHA-256 fingerprint from a stable file', async () => {

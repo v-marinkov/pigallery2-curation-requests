@@ -129,18 +129,18 @@ const server_1 = require("../server");
             '⚠ Deletion errors'
         ]);
         strict_1.default.equal(buttons.get('Request curation')?.config.minUserRole, UserDTO_1.UserRoles.User);
-        strict_1.default.deepEqual(buttons.get('Request curation')?.config.popup.customFields.map((field) => field.id), ['deletion', 'faces', 'tags', 'location', 'dateTime', 'titleCaption', 'duplicate', 'other', 'comment']);
+        strict_1.default.deepEqual(buttons.get('Request curation')?.config.popup.customFields.map((field) => field.id), ['faces', 'tags', 'location', 'dateTime', 'titleCaption', 'duplicate', 'other', 'deletion', 'comment']);
         strict_1.default.deepEqual(buttons.get('Request curation')?.config.popup.customFields
             .filter((field) => field.type === 'boolean')
             .map((field) => field.label), [
-            '🗑 Request deletion',
             '👤 Wrong or missing faces',
             '🏷 Wrong or missing tags',
             '📍 Wrong or missing location',
             '🕒 Wrong date or time',
             '📝 Wrong or missing title/caption',
             '🖼 Duplicate photo',
-            '❓ Other'
+            '❓ Other',
+            '🗑 Request deletion'
         ]);
         strict_1.default.equal(buttons.get('Cancel my curation requests')?.config.minUserRole, UserDTO_1.UserRoles.User);
         strict_1.default.equal(buttons.get('Resolve metadata requests (admin only)')?.config.minUserRole, UserDTO_1.UserRoles.Admin);
@@ -181,6 +181,7 @@ const server_1 = require("../server");
         strict_1.default.ok(media.metadata.keywords.includes('pg-curation:open'));
         strict_1.default.ok(!media.metadata.keywords.some((keyword) => keyword.startsWith('pg-curation:category:')));
         strict_1.default.ok(media.metadata.keywords.includes('pg-curation:requested-by:anna'));
+        strict_1.default.ok(media.metadata.keywords.includes('pg-curation:delete-requested-by:anna'));
         const itemTag = media.metadata.keywords.find((keyword) => keyword.startsWith('pg-curation:item:'));
         strict_1.default.match(itemTag || '', /^pg-curation:item:[a-f0-9]{32}$/);
         const token = itemTag.split(':').at(-1);
@@ -213,6 +214,7 @@ const server_1 = require("../server");
         strict_1.default.ok(media.metadata.keywords.includes('pg-curation:category:faces'));
         strict_1.default.ok(media.metadata.keywords.includes('pg-curation:category:other'));
         strict_1.default.ok(!media.metadata.keywords.includes('pg-curation:delete-pending'));
+        strict_1.default.ok(!media.metadata.keywords.some((keyword) => keyword.startsWith('pg-curation:delete-requested-by:')));
         await buttons.get('Resolve metadata requests (admin only)').callback({}, { data: { customFields: { confirm: true, resolutionComment: 'XMP fixed' } } }, { id: 9, name: 'admin', role: UserDTO_1.UserRoles.Admin }, media, mediaRepository);
         strict_1.default.deepEqual(media.metadata.keywords, ['family']);
         strict_1.default.equal(saved.length, 5);

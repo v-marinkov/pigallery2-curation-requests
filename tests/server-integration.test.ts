@@ -106,21 +106,21 @@ it('executes general curation and deletion workflows without changing the photo'
     assert.equal(buttons.get('Request curation')?.config.minUserRole, UserRoles.User);
     assert.deepEqual(
       buttons.get('Request curation')?.config.popup.customFields.map((field: any) => field.id),
-      ['deletion', 'faces', 'tags', 'location', 'dateTime', 'titleCaption', 'duplicate', 'other', 'comment']
+      ['faces', 'tags', 'location', 'dateTime', 'titleCaption', 'duplicate', 'other', 'deletion', 'comment']
     );
     assert.deepEqual(
       buttons.get('Request curation')?.config.popup.customFields
         .filter((field: any) => field.type === 'boolean')
         .map((field: any) => field.label),
       [
-        '🗑 Request deletion',
         '👤 Wrong or missing faces',
         '🏷 Wrong or missing tags',
         '📍 Wrong or missing location',
         '🕒 Wrong date or time',
         '📝 Wrong or missing title/caption',
         '🖼 Duplicate photo',
-        '❓ Other'
+        '❓ Other',
+        '🗑 Request deletion'
       ]
     );
     assert.equal(buttons.get('Cancel my curation requests')?.config.minUserRole, UserRoles.User);
@@ -202,6 +202,7 @@ it('executes general curation and deletion workflows without changing the photo'
       (keyword: string) => keyword.startsWith('pg-curation:category:')
     ));
     assert.ok(media.metadata.keywords.includes('pg-curation:requested-by:anna'));
+    assert.ok(media.metadata.keywords.includes('pg-curation:delete-requested-by:anna'));
     const itemTag = media.metadata.keywords.find((keyword: string) => keyword.startsWith('pg-curation:item:'));
     assert.match(itemTag || '', /^pg-curation:item:[a-f0-9]{32}$/);
     const token = itemTag!.split(':').at(-1);
@@ -269,6 +270,9 @@ it('executes general curation and deletion workflows without changing the photo'
     assert.ok(media.metadata.keywords.includes('pg-curation:category:faces'));
     assert.ok(media.metadata.keywords.includes('pg-curation:category:other'));
     assert.ok(!media.metadata.keywords.includes('pg-curation:delete-pending'));
+    assert.ok(!media.metadata.keywords.some(
+      (keyword: string) => keyword.startsWith('pg-curation:delete-requested-by:')
+    ));
 
     await buttons.get('Resolve metadata requests (admin only)')!.callback(
       {}, {data: {customFields: {confirm: true, resolutionComment: 'XMP fixed'}}},
